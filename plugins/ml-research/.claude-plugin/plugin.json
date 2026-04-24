@@ -1,6 +1,6 @@
 {
   "name": "ml-research",
-  "description": "Claude Code skills for ML research on HPC: SLURM, the NCSA Delta cluster, the University of Utah CHPC, model training verification, and autonomous research iteration.",
+  "description": "Claude Code skills for ML research on HPC: SLURM job orchestration (with built-in references for NCSA Delta and University of Utah CHPC), training-loop verification, and autonomous research iteration.",
   "author": {
     "name": "Jake Schmidt",
     "email": "schmidt.jake.c@gmail.com"

@@ -11,7 +11,7 @@
     {
       "name": "ml-research",
       "source": "./plugins/ml-research",
-      "description": "Claude Code skills for ML research on HPC: SLURM, NCSA Delta, University of Utah CHPC, model training verification, and autonomous research iteration.",
+      "description": "Claude Code skills for ML research on HPC: SLURM job orchestration (with built-in references for NCSA Delta and University of Utah CHPC), training-loop verification, and autonomous research iteration.",
       "category": "ml-research",
       "tags": ["slurm", "hpc", "ml", "gpu", "pytorch-lightning", "ncsa-delta", "chpc"]
     }

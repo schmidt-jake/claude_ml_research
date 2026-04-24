@@ -1,13 +1,26 @@
 ---
 name: slurm
-description: Interact with an HPC cluster managed by SLURM. Use when submitting, monitoring, or debugging SLURM jobs, choosing partitions, tuning batch size, writing sbatch scripts, running interactive sessions, or diagnosing job failures (OOM, timeout, node errors). Also use when the user mentions job queues, GPU allocation, or cluster resource optimization.
+description: Interact with an HPC cluster managed by SLURM — including NCSA Delta, University of Utah CHPC (notchpeak, kingspeak, lonepeak, granite, redwood), and any generic SLURM cluster. Use when submitting, monitoring, or debugging SLURM jobs; writing sbatch scripts; choosing partitions/QoS/accounts; tuning batch size; running interactive sessions (salloc, srun --pty); or diagnosing job failures (OOM, timeout, node errors). Also use when the user mentions sbatch, squeue, sacct, salloc, scancel, sprio, Delta, NCSA, bdhi, CHPC, notchpeak, job queues, GPU allocation, or cluster resource optimization.
 ---
 
 You are on an HPC cluster managed by SLURM. Read the [SLURM quickstart guide](https://slurm.schedmd.com/quickstart.html). You are likely on a login node, but if `nvidia-smi` shows available GPUs, you are probably on a GPU-enabled compute node.
 
-Check which cluster you are on with `scontrol show config | grep ClusterName` and load the corresponding cluster skill, if available.
-
 Primary use case: launching and monitoring distributed GPU-enabled training jobs.
+
+## Identify the cluster
+
+Before giving any cluster-specific advice (partitions, accounts, charge factors, filesystems, modules), identify which cluster you're on and load the corresponding site reference:
+
+```bash
+scontrol show config | grep ClusterName
+```
+
+| `ClusterName` value | Reference file to read |
+|---|---|
+| `delta` | `${CLAUDE_SKILL_DIR}/clusters/delta.md` |
+| `notchpeak`, `kingspeak`, `lonepeak`, `granite`, `redwood`, `ash` | `${CLAUDE_SKILL_DIR}/clusters/chpc.md` |
+
+If the cluster isn't in the table, proceed with the generic guidance below and explicitly note that site-specific details (partitions, charge rates, filesystem paths, account/QoS triples) are unknown — ask the user for a link to the cluster's user guide or have them paste `sinfo` output.
 
 ## Partition selection
 

@@ -1,13 +1,10 @@
----
-name: chpc
-description: Working with University of Utah CHPC HPC clusters (notchpeak, kingspeak, lonepeak, granite, redwood). Use when writing/debugging SLURM scripts (#SBATCH directives), requesting GPUs via --gres, choosing partitions/accounts/QOS, loading Lmod modules (module load / spider), picking home vs group vs scratch storage, running interactive jobs (salloc / srun), or troubleshooting job submission on CHPC. Applies whenever code or shell commands are run on *.chpc.utah.edu hosts.
----
+# University of Utah CHPC
 
-# CHPC (Center for High Performance Computing, University of Utah)
+Site-specific reference for the University of Utah Center for High Performance Computing clusters. Read alongside the generic SLURM guidance in this skill's `SKILL.md`.
 
 ## Clusters
 
-General-environment clusters (what this skill covers):
+General-environment clusters covered by this reference:
 
 | Cluster | Login host | Notes |
 |---|---|---|

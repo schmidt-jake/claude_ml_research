@@ -8,9 +8,7 @@ A [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-market
 
 Skills bundle for HPC-based ML research:
 
-- **`slurm`** — Submit, monitor, and debug SLURM jobs; pick partitions; tune batch size; diagnose OOM/timeout/node errors.
-- **`delta-cluster`** — NCSA Delta-specific guidance (partitions, charge rates, `/work` vs `/projects`, `bdhi` account). Composes with `slurm`.
-- **`chpc-cluster`** — University of Utah CHPC-specific guidance (account/partition/QOS triples, module system, scratch filesystems). Composes with `slurm`.
+- **`slurm`** — Submit, monitor, and debug SLURM jobs; pick partitions; tune batch size; diagnose OOM/timeout/node errors. Auto-detects the cluster via `scontrol` and loads the matching site reference from `slurm/clusters/` — ships with references for **NCSA Delta** (partitions, charge rates, `/work` vs `/projects`, `bdhi` account) and **University of Utah CHPC** (account/partition/QOS triples, module system, scratch filesystems). Add another cluster by dropping a new file into `slurm/clusters/<name>.md` and updating the detection table in `slurm/SKILL.md`.
 - **`model-training`** — Staged pre-flight test procedure (code correctness → learnability → GPU efficiency → fault tolerance) to shake out a training loop before launching a full run.
 - **`autoresearch`** — Autonomous iteration on model architecture, data augmentation, and objective functions via rapid small-scale experiments.
 
@@ -58,8 +56,10 @@ ml_research/
         ├── .claude-plugin/plugin.json
         └── skills/
             ├── autoresearch/
-            ├── chpc-cluster/
-            ├── delta-cluster/
             ├── model-training/
             └── slurm/
+                ├── SKILL.md
+                └── clusters/
+                    ├── chpc.md
+                    └── delta.md
 ```

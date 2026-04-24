@@ -1,9 +1,6 @@
----
-name: delta-cluster
-description: Interact with the NCSA Delta cluster. Use when submitting jobs to Delta, choosing between A40/A100/H200 partitions, checking charge rates, managing data on /work or /projects, or troubleshooting Delta-specific issues. Also use when the user references Delta, NCSA, bdhi, or any Delta partition name.
----
+# NCSA Delta
 
-You are on a login node of the NCSA Delta cluster, which is managed by SLURM. Load the `slurm` skill from this plugin (`/ml-research:slurm`), then use the cluster-specific details below.
+Site-specific reference for the NCSA Delta cluster. Read alongside the generic SLURM guidance in this skill's `SKILL.md`.
 
 Account: `bdhi-delta-gpu`
 
