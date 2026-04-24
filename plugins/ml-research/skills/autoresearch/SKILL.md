@@ -31,10 +31,17 @@ All work happens in a dedicated worktree at `../autoresearch` (`git worktree add
 
 ## Procedure
 
-Each experiment runs on a single A100 for up to 45 min via `${CLAUDE_SKILL_DIR}/scripts/launch.sbatch`. The launch script sets `config/conf.yaml` as the base; the caller must layer `${CLAUDE_SKILL_DIR}/config.yaml` on top (1 epoch, no checkpointing, reduced val batches, 30-min timer, W&B `autoresearch` tag). Override further with additional CLI args (later `--config=` values override earlier ones):
+Each experiment runs on a single A100 for up to 45 min via `${CLAUDE_SKILL_DIR}/scripts/launch.sbatch`. The launch script sets `config/conf.yaml` as the base; the caller must layer `${CLAUDE_SKILL_DIR}/config.yaml` on top (1 epoch, no checkpointing, reduced val batches, 30-min timer, W&B `autoresearch` tag). The script reads three caller-supplied values (none are hardcoded):
+
+- `--account=...` on the sbatch CLI — the SLURM account to charge (e.g. `<project>-delta-gpu`).
+- `AUTORESEARCH_DATA_DIR` env var — dataset root, used to build `--data.mdata_path` and `--data.gtf_path`.
+- `AUTORESEARCH_SCRATCH_ROOT` env var — per-user scratch root; the job creates `$AUTORESEARCH_SCRATCH_ROOT/$SLURM_JOB_ID` as its working dir and exports it as `$TMPDIR`.
+
+Export these once per shell (e.g. in `~/.bashrc`) so you don't have to re-supply them each submit. Override further via CLI args after the config (later `--config=` values override earlier ones):
 
 ```bash
-sbatch "${CLAUDE_SKILL_DIR}/scripts/launch.sbatch" \
+sbatch --account=<project>-delta-gpu \
+  "${CLAUDE_SKILL_DIR}/scripts/launch.sbatch" \
   --config="${CLAUDE_SKILL_DIR}/config.yaml" \
   --model.lr=3e-4
 ```
@@ -71,9 +78,10 @@ Each file has a single responsibility — do not duplicate information across fi
 3. Branch: `git checkout -b autoresearch/experiments/NNN-description`.
 4. Implement the changes.
 5. Verify param budget with `count_params.py`.
-6. Use the slurm skill to select the best partition, then submit:
+6. Use the slurm skill to select the best partition, then submit (assumes `AUTORESEARCH_DATA_DIR` and `AUTORESEARCH_SCRATCH_ROOT` are exported):
    ```sh
-   sbatch --partition=<selected> "${CLAUDE_SKILL_DIR}/scripts/launch.sbatch" \
+   sbatch --account=<account> --partition=<selected> \
+     "${CLAUDE_SKILL_DIR}/scripts/launch.sbatch" \
      --config="${CLAUDE_SKILL_DIR}/config.yaml" \
      --trainer.logger.init_args.name="$(git branch --show-current)" \
      --trainer.logger.init_args.notes="One-sentence summary of the change"

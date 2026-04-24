@@ -1,6 +1,6 @@
 ---
 name: slurm
-description: Interact with an HPC cluster managed by SLURM — including NCSA Delta, University of Utah CHPC (notchpeak, kingspeak, lonepeak, granite, redwood), and any generic SLURM cluster. Use when submitting, monitoring, or debugging SLURM jobs; writing sbatch scripts; choosing partitions/QoS/accounts; tuning batch size; running interactive sessions (salloc, srun --pty); or diagnosing job failures (OOM, timeout, node errors). Also use when the user mentions sbatch, squeue, sacct, salloc, scancel, sprio, Delta, NCSA, bdhi, CHPC, notchpeak, job queues, GPU allocation, or cluster resource optimization.
+description: Interact with an HPC cluster managed by SLURM — including NCSA Delta, University of Utah CHPC (notchpeak, kingspeak, lonepeak, granite, redwood), and any generic SLURM cluster. Use when submitting, monitoring, or debugging SLURM jobs; writing sbatch scripts; choosing partitions/QoS/accounts; tuning batch size; running interactive sessions (salloc, srun --pty); or diagnosing job failures (OOM, timeout, node errors). Also use when the user mentions sbatch, squeue, sacct, salloc, scancel, sprio, Delta, NCSA, CHPC, notchpeak, job queues, GPU allocation, or cluster resource optimization.
 ---
 
 You are on an HPC cluster managed by SLURM. Read the [SLURM quickstart guide](https://slurm.schedmd.com/quickstart.html). You are likely on a login node, but if `nvidia-smi` shows available GPUs, you are probably on a GPU-enabled compute node.

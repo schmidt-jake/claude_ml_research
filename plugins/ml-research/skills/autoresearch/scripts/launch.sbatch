@@ -1,6 +1,5 @@
 #!/bin/bash
 #SBATCH --job-name=autoresearch
-#SBATCH --account=bdhi-delta-gpu
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=5
@@ -10,11 +9,25 @@
 #SBATCH --output=logs/%x/%j/%t/stdout.log
 #SBATCH --error=logs/%x/%j/%t/stderr.log
 
+# Account and data paths are not hardcoded — the caller must supply them:
+#   --account=<slurm-account>   passed to sbatch on the CLI
+#   AUTORESEARCH_DATA_DIR       env var, inherited by the job
+#   AUTORESEARCH_SCRATCH_ROOT   env var, inherited by the job
+# Example:
+#   AUTORESEARCH_DATA_DIR=/work/hdd/<project>/$USER/data \
+#   AUTORESEARCH_SCRATCH_ROOT=/work/hdd/<project>/$USER \
+#   sbatch --account=<project>-delta-gpu --partition=<p> \
+#     "${CLAUDE_SKILL_DIR}/scripts/launch.sbatch" \
+#     --config="${CLAUDE_SKILL_DIR}/config.yaml"
+
 set -euo pipefail
 
-DATA_DIR=/work/hdd/bdhi/$USER/data
-JOB_DIR=/work/hdd/bdhi/$USER/$SLURM_JOB_ID
-mkdir -p $JOB_DIR
+: "${AUTORESEARCH_DATA_DIR:?AUTORESEARCH_DATA_DIR must be set (dataset root)}"
+: "${AUTORESEARCH_SCRATCH_ROOT:?AUTORESEARCH_SCRATCH_ROOT must be set (per-user scratch root; job dir is created beneath it as \$SLURM_JOB_ID)}"
+
+DATA_DIR="$AUTORESEARCH_DATA_DIR"
+JOB_DIR="$AUTORESEARCH_SCRATCH_ROOT/$SLURM_JOB_ID"
+mkdir -p "$JOB_DIR"
 
 export TMPDIR=$JOB_DIR
 
