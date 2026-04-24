@@ -114,9 +114,9 @@ Check for:
 - W&B run (if enabled) shows state transitions `running → preempting → running`.
 
 Re-run this test whenever modifying:
-- `ExceptionCallback.on_save_checkpoint` / `on_load_checkpoint` / `on_train_start`
-- `PreemptionCallback` signal handlers
-- `CellxGeneSampler` state-dict semantics
+- The project's exception-handling trainer callback (`on_save_checkpoint` / `on_load_checkpoint` / `on_train_start`)
+- The project's preemption-handling `SLURMEnvironment` subclass (signal handlers)
+- Any stateful sampler in the data module — anything with non-trivial `state_dict` / `load_state_dict` semantics that must survive a mid-validation preemption
 
 ## Full training runs
 
