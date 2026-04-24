@@ -225,6 +225,8 @@ Runs once per campaign, interactive with the user.
 /ml-research:autoresearch                   # resume if cwd is inside a worktree, else prompt for name
 ```
 
+The `<campaign-name>` argument is the same string as the `project_name` field in `config.json`. The two are used interchangeably in this spec — invocation arg, worktree directory suffix, trunk branch suffix, and config field all share the value.
+
 ### Decision flow
 
 ```
@@ -320,43 +322,68 @@ loop forever:
     # 2. Resumption / reconciliation — idempotent, runs every iteration
     for each experiment with job_status: pending:
         probe job state via env-appropriate skill (ml-research:slurm, etc.)
-        if still running:
-            dispatch Experimenter in resume-monitoring mode
+        if no job_id recorded yet (mid-dispatch crash before launch):
+            # Stub exists, branch may or may not, Experimenter never started
+            # Re-dispatch fresh (Experimenter idempotently re-uses existing branch)
+            result = dispatch Experimenter in fresh mode
+            post_experimenter(result)
+        elif still running:
+            result = dispatch Experimenter in resume-monitoring mode
+            post_experimenter(result)
         elif terminated cleanly:
-            dispatch Experimenter in analyze-only mode
+            result = dispatch Experimenter in analyze-only mode
+            post_experimenter(result)
         elif terminated abnormally:
-            update job_status: crashed, record reason, continue
+            update experiment file: job_status: crashed + crash_reason in narrative
+            commit on trunk
+            continue
+    # Also: detect orphan experiment-named branches with no experiment file (shouldn't
+    # happen given the stub-first ordering below, but if it does, log to insights.md
+    # and leave alone — user can investigate)
 
-    # 3. Post-experiment housekeeping
-    if any experiment just transitioned to a terminal state:
-        write experiment file + CSV row on trunk, commit
-        if job_status: succeeded && result_status: accepted:
-            squash-merge experiment branch onto trunk
-        # rejected / inconclusive / crashed: branch preserved, no merge
-
-    # 4. Periodic maintenance
+    # 3. Periodic maintenance
     if succeeded-count since last Reviewer >= 5:
-        dispatch Reviewer
-            apply insights delta to insights.md on trunk, commit
+        delta = dispatch Reviewer
+        apply insights delta to insights.md on trunk, commit
 
-    # 5. Idea selection
+    # 4. Idea selection
     if ideas.md has items:
         next_idea = pop top item from ideas.md, commit on trunk
     else:
-        dispatch Ideator
-            next_idea = returned idea (with citations)
+        next_idea = dispatch Ideator   # returns one idea with citations
 
-    # 6. Experimenter dispatch
-    assign next experiment ID (auto-increment from experiments/ dir)
-    create branch autoresearch/<campaign>/NNN-<slug> off trunk
-    dispatch Experimenter with next_idea + branch name
-        Experimenter runs its internal debug loop up to debug_cap
-        returns structured summary + narrative text
-    apply results on trunk:
-        write experiments/NNN-<slug>.md
-        append CSV row if succeeded
+    # 5. New experiment dispatch
+    NNN = next experiment ID (auto-increment from experiments/ dir)
+    slug = derive_slug(next_idea.title)
+    # Stub-first ordering: create the experiment-file marker BEFORE the branch and
+    # BEFORE the dispatch. If anything below crashes mid-flight, resumption (step 2)
+    # finds the stub and reconciles.
+    write experiments/NNN-<slug>.md as a stub (frontmatter only):
+        id: NNN, title, date, theme, sources from next_idea,
+        job_status: pending, result_status: null, attempts: 1
+    commit stub on trunk
+    git branch autoresearch/<campaign>/NNN-<slug>     # branch ref created off trunk; main agent stays on trunk
+    result = dispatch Experimenter with next_idea + branch name + experiment_id=NNN
+        # Experimenter operates on the branch (recommended: isolation: "worktree" so it
+        # gets its own worktree on the branch and main agent's trunk worktree is untouched)
+        # Experimenter runs its internal debug loop up to debug_cap
+        # returns structured summary + narrative text
+    post_experimenter(result)
+
+
+# Single post-Experimenter handler, invoked after every dispatch (resumption or new):
+def post_experimenter(result):
+    # Main agent is on trunk throughout this handler.
+    # The stub experiment file already exists (written before dispatch); this overwrites it.
+    overwrite experiments/<result.experiment_id>-<slug>.md
+        (frontmatter from result + result.narrative_markdown as body)
+    if result.job_status == "succeeded":
+        append CSV row from result.metrics, result.experiment_id, result.branch, result.commit
+    commit on trunk
+    if result.job_status == "succeeded" and result.result_status == "accepted":
+        git merge --squash <result.branch>
         commit on trunk
-        if accepted → squash-merge branch
+    # rejected / inconclusive / crashed: branch preserved as-is, no merge
 ```
 
 ### Git choreography
@@ -370,12 +397,15 @@ loop forever:
 
 **Experiment branch lifecycle:**
 
-1. Main agent: `git checkout -b autoresearch/<campaign>/NNN-<slug>` off trunk HEAD.
-2. Dispatch Experimenter on that branch.
-3. Experimenter commits code changes on the branch.
-4. Main agent `git checkout <trunk>`, writes experiment file + CSV row, commits on trunk.
-5. If accepted: `git merge --squash autoresearch/<campaign>/NNN-<slug>` brings the code change onto trunk. Branch is preserved (not deleted — audit trail).
-6. If rejected / inconclusive / crashed: branch preserved as-is, no merge. Trunk has the experiment file and CSV row; trunk does NOT have the code change.
+1. Main agent (on trunk): `git branch autoresearch/<campaign>/NNN-<slug>` — creates the branch ref off trunk HEAD without checking it out. Main agent's working tree stays on trunk.
+2. Main agent dispatches Experimenter with `isolation: "worktree"` (recommended) or equivalent, passing the branch name. Experimenter gets its own worktree on the branch; main agent's trunk worktree is untouched.
+3. Experimenter commits code changes in its isolated worktree. Commits land on the branch in the shared `.git` repo, visible from any worktree.
+4. Experimenter returns its result. The isolated worktree is auto-cleaned (per Agent-tool semantics).
+5. Main agent (still on trunk) writes experiment file + CSV row, commits on trunk.
+6. If accepted: `git merge --squash autoresearch/<campaign>/NNN-<slug>` from trunk brings the code change onto trunk. Branch is preserved (not deleted — audit trail).
+7. If rejected / inconclusive / crashed: branch preserved as-is, no merge. Trunk has the experiment file and CSV row; trunk does NOT have the code change.
+
+If `isolation: "worktree"` is not used (e.g., the harness doesn't support it for some reason), the fallback is for the main agent to `git checkout <branch>` before dispatching and `git checkout <trunk>` after the dispatch returns. This works but is fragile across crashes (a mid-dispatch interruption leaves the main agent's working tree on the experiment branch). Worktree isolation is strongly preferred.
 
 Every experiment's code is preserved on its branch forever, regardless of outcome. Auditability requirement met in full.
 
