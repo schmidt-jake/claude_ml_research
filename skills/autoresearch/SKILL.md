@@ -17,7 +17,7 @@ You may change architecture, data augmentation, training loop, objective functio
 - validation dataset, logic, or existing metrics (adding new metrics alongside existing ones is fine)
 - the random seed, number of training steps, or model width/depth
 
-**Parameter budget**: try not to exceed the baseline parameter count. Verify before submitting: `uv run python .claude/skills/autoresearch/scripts/count_params.py`. Reducing parameters while maintaining performance is a valid direction.
+**Parameter budget**: try not to exceed the baseline parameter count. Verify before submitting: `uv run python "${CLAUDE_PLUGIN_ROOT}/skills/autoresearch/scripts/count_params.py"`. Reducing parameters while maintaining performance is a valid direction.
 
 **Utility at scale**: improvements should hold at scale (bigger models, more data, longer training). Avoid changes that overfit to the specifics of the current small-scale experimental setup/budget (regularization tuned specifically for small data / short runs, hyperparameter micro-optimization, tricks that exploit the specific number of training steps or val set composition).
 
@@ -31,10 +31,10 @@ All work happens in a dedicated worktree at `../autoresearch` (`git worktree add
 
 ## Procedure
 
-Each experiment runs on a single A100 for up to 45 min via `.claude/skills/autoresearch/scripts/launch.sbatch`. The launch script layers `.claude/skills/autoresearch/config.yaml` on top of `config/conf.yaml` (1 epoch, no checkpointing, reduced val batches, 30-min timer, W&B `autoresearch` tag). Override further with CLI args:
+Each experiment runs on a single A100 for up to 45 min via `${CLAUDE_PLUGIN_ROOT}/skills/autoresearch/scripts/launch.sbatch`. The launch script layers `${CLAUDE_PLUGIN_ROOT}/skills/autoresearch/config.yaml` on top of `config/conf.yaml` (1 epoch, no checkpointing, reduced val batches, 30-min timer, W&B `autoresearch` tag). Override further with CLI args:
 
 ```bash
-sbatch .claude/skills/autoresearch/scripts/launch.sbatch --model.lr=3e-4
+sbatch "${CLAUDE_PLUGIN_ROOT}/skills/autoresearch/scripts/launch.sbatch" --model.lr=3e-4
 ```
 
 Run `uv run harness fit --help` for docs on available overrides.
@@ -45,14 +45,14 @@ Run `uv run harness fit --help` for docs on available overrides.
 
 ### Tracking
 
-Tracking files live in `autoresearch/` (a subdirectory of the worktree root), not in the templates directory. Templates in `.claude/skills/autoresearch/templates/` are pristine starting points — **never edit them directly**.
+Tracking files live in `autoresearch/` (a subdirectory of the worktree root), not in the templates directory. Templates in `${CLAUDE_PLUGIN_ROOT}/skills/autoresearch/templates/` are pristine starting points — **never edit them directly**.
 
 **Initialization**: on first run (or if a tracking file is missing), copy each template into the tracking directory:
 
 ```bash
 mkdir -p autoresearch
 for f in autoresearch_ideas.md autoresearch_log.md autoresearch_results.csv; do
-  [ -f "autoresearch/$f" ] || cp ".claude/skills/autoresearch/templates/$f" "autoresearch/$f"
+  [ -f "autoresearch/$f" ] || cp "${CLAUDE_PLUGIN_ROOT}/skills/autoresearch/templates/$f" "autoresearch/$f"
 done
 ```
 
@@ -71,7 +71,7 @@ Each file has a single responsibility — do not duplicate information across fi
 5. Verify param budget with `count_params.py`.
 6. Use the slurm skill to select the best partition, then submit:
    ```sh
-   sbatch --partition=<selected> .claude/skills/autoresearch/scripts/launch.sbatch \
+   sbatch --partition=<selected> "${CLAUDE_PLUGIN_ROOT}/skills/autoresearch/scripts/launch.sbatch" \
      --trainer.logger.init_args.name="$(git branch --show-current)" \
      --trainer.logger.init_args.notes="One-sentence summary of the change"
    ```
