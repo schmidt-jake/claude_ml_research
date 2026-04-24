@@ -1,1 +1,0 @@
-experiment_id,title,branch,commit,slurm_job_id,wandb_url,date,trainable_params,total_params,final_train_loss,final_val_loss,accepted,notes
