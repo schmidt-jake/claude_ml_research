@@ -78,11 +78,18 @@ User-authoritative, written once at Phase 0 setup, read by the main agent at eve
     "launch_experiment": {
       "command": "scripts/launch.sh",
       "environment": "slurm"
-    }
+    },
+    "read_metrics":      { "command": "scripts/read_metrics.sh" }
   },
+  "experiment_budget": {
+    "max_steps": 1000,
+    "max_wall_time": "00:30:00"
+  },
+  "compile_cache_dir": "~/.cache/torch_compile/<project_name>",
   "debug_cap": 3,
   "constraints": [
-    "no change to random seed, step count, validation dataset, validation logic, or validation metrics",
+    "no change to random seed, validation dataset, validation logic, or validation metrics",
+    "no change to the experiment budget defined in config.json (experiment_budget)",
     "parameter count must be <= baseline * 1.05",
     "no change to core dependencies / package versions"
   ],
@@ -101,9 +108,14 @@ User-authoritative, written once at Phase 0 setup, read by the main agent at eve
 
 Notes on semantics:
 
-- **`relevant_files`** is a hard safety rail for Experimenter. Shell-style globs (`**`, `*`, `?`). Subagents may only *edit* files matching `editable`; they may *read* files matching `read_only`; files outside both lists are implicitly off-limits.
-- **`entrypoints`** — pluggable user-provided commands. Contract for each is documented in SKILL.md (not duplicated per-campaign). `count_params.command` must print JSON with keys `trainable_params`, `total_params` to stdout. `launch_experiment.command` must submit a job, print its job ID to stdout, and accept training overrides as positional args.
+- **`relevant_files`** is a hard safety rail for Experimenter. Shell-style globs (`**`, `*`, `?`). Subagents may *edit existing files or create new files* at paths matching `editable`; they may *read* files matching `read_only`; files outside both lists are implicitly off-limits to both reads and writes (other than the standard project-orientation reads like `pyproject.toml` or `README.md`). The constraint is about which paths can be touched, not whether the files preexist.
+- **`entrypoints`** — pluggable user-provided commands. All contracts are documented in SKILL.md (not duplicated per-campaign):
+    - `count_params.command` must print JSON with keys `trainable_params`, `total_params` to stdout.
+    - `launch_experiment.command` must submit a job, print its job ID to stdout, and accept training overrides as positional args. **It must also write final-metrics output that `read_metrics.command` can return.** No agent ever streams stdout/stderr from `launch_experiment.command` into its context — the only path from job to context is via `read_metrics`.
+    - `read_metrics.command` is invoked after the job completes (with `JOB_ID` as an env var) and must print JSON to stdout containing at minimum `{"final_train_loss": float, "final_val_loss": float}`. Other metrics keys (e.g. best-val-loss, GPU utilization) are allowed and surfaced into the experiment file. Implementations: read a metrics file the launcher wrote, query a tracking service (W&B, MLflow), or grep a structured log line.
 - **`environment`** is a free-form hint string (`"slurm"`, `"local"`, `"k8s"`, `"ray"`, …) that tells the Experimenter which env-specific skill (if any) to invoke for monitoring.
+- **`experiment_budget`** caps each experiment's compute. At least one of `max_steps` or `max_wall_time` (HH:MM:SS) must be set. The `launch_experiment` entrypoint is responsible for honoring these; the Experimenter passes them as overrides if the launcher accepts them, and otherwise relies on the launcher's own defaults. Frozen by constraint after Phase 0 — changing the budget mid-campaign would break experiment comparability.
+- **`compile_cache_dir`** (optional). If set, the Experimenter exports `TORCHINDUCTOR_CACHE_DIR` (or the equivalent env var for the user's compile backend) when launching a job. The cache is shared across experiments for speed; the Experimenter wipes it before launching when `theme: architecture` (architecture changes invalidate compiled kernels). Omit this field if the project doesn't use `torch.compile`.
 - **`debug_cap`** caps the Experimenter's internal retry loop. Default 3. Counts total attempts including the first launch.
 - **`constraints`** is a flat list of free-text rules. Phase 0 seeds skill-default constraints; user can add/remove.
 - **`theme_priorities`** ranks themes. Skill-default theme list: `optimizer, initialization, data_augmentation, architecture, regularization, training_objective, tokenization, schedule`. The `training_objective` theme refers to the *training* loss / objective function; the validation metric is frozen by constraint and can never be a theme target.
@@ -180,7 +192,7 @@ One row per `job_status: succeeded` experiment. Crashed experiments get no CSV r
 
 ### `autoresearch/insights.md`
 
-Reviewer-maintained synthesis. Bounded (~50 lines target; Reviewer prunes). Structured into named sections so insights can be referenced by anchor in idea citations.
+Reviewer-maintained synthesis. No hard size bound — the Reviewer is responsible for keeping it useful (consolidating, pruning stale entries, removing redundancy). Structured into named sections so insights can be referenced by anchor in idea citations.
 
 ```markdown
 # Insights
@@ -208,7 +220,7 @@ At worst, all five files combined:
 |---|---|
 | `config.json` | ~2 KB |
 | `ideas.md` | 0–1.5 KB |
-| `insights.md` | ~2 KB (bounded) |
+| `insights.md` | small to start; Reviewer prunes — should stay manageable in practice |
 | `results.csv` | ~150 B × N (tiny even at N=500) |
 | Experiment frontmatters (scan) | ~500 B × N pending/crashed only |
 
@@ -251,24 +263,32 @@ The main agent does a lightweight codebase scan first (a few `ls`, read `pyproje
 2. **Entrypoints.**
     - `count_params`: Detect `scripts/count_params.py` or `tools/count_params.py`. If not found, offer to scaffold one from `templates/examples/count_params_lightning.py`.
     - `launch_experiment`: Detect `scripts/launch.sh`, `scripts/*.sbatch`, Makefile targets. Infer `environment` from script contents (sbatch header → `slurm`, `kubectl` → `k8s`, bare `python` → `local`, …). Present and take edits.
+    - `read_metrics`: Ask the user how the launcher persists final metrics, and propose a one-line command that returns them as JSON. Common patterns: `cat $JOB_DIR/metrics.json`, a wandb-API query, or a `grep`+`jq` over a structured log line. If unclear, offer to scaffold a small reader script.
 
-3. **Constraints.** Present skill-default constraints (see below), ask for additions/removals.
+3. **Experiment budget.** Ask for `max_steps` and/or `max_wall_time` (at least one required). Defaults: none — must be user-set, since "what is a small experiment" is project-specific.
 
-4. **Theme priorities.** Present skill-default theme list, ask user to rank into high/medium/low buckets.
+4. **`torch.compile` cache.** Ask whether the project uses `torch.compile` (or equivalent). If yes, propose a default `compile_cache_dir` under `~/.cache/torch_compile/<project_name>`. If no, omit the field.
 
-5. **Prior findings.** Open-ended: "What have you tried manually on this project? What worked, what didn't? Anything to bias ideation for or against?" Free-form bullet strings.
+5. **Constraints.** Present skill-default constraints (see below), ask for additions/removals.
 
-6. **`debug_cap`.** Default 3; ask if user wants to override.
+6. **Theme priorities.** Present skill-default theme list, ask user to rank into high/medium/low buckets.
+
+7. **Prior findings.** Open-ended: "What have you tried manually on this project? What worked, what didn't? Anything to bias ideation for or against?" Free-form bullet strings.
+
+8. **`debug_cap`.** Default 3; ask if user wants to override.
 
 Before writing, main agent presents a draft `config.json` and asks for confirmation.
 
 ### Skill-default constraints (seeded into `constraints` list)
 
 ```
-- no change to random seed, step count, validation dataset, validation logic, or validation metrics
+- no change to random seed, validation dataset, validation logic, or validation metrics
+- no change to the experiment budget defined in config.json (experiment_budget)
 - parameter count must be <= baseline * 1.05
 - no change to core dependencies / package versions
 ```
+
+(The "no change to experiment budget" constraint is a hard rule; the budget is set once at Phase 0 and cannot be edited later — see "Config.json freeze" below.)
 
 ### Skill-default theme list
 
@@ -302,12 +322,15 @@ git commit -m "Initialize autoresearch campaign: <project_name>"
 
 Main agent announces setup complete and begins Phase 1 with a **baseline dispatch** (no Ideator call): experiment 001 = unmodified code. Experimenter runs the `launch_experiment` entrypoint as-is, records metrics, writes `experiments/001-baseline.md` with `result_status: accepted` (trivially). First CSV row written. Normal loop begins thereafter.
 
-### Edit-later semantics
+### Config.json freeze
 
-`config.json` is user-editable at any time post-setup. Main agent:
-- Re-reads at every iteration (it's small).
-- May propose edits ("15 experiments in, all attention-variants failed — add to constraints?") but never writes `config.json` without user approval.
-- User is the only writer of `config.json` after Phase 0.
+**`config.json` is frozen after Phase 0.** Once initialized and committed, it is not edited — not by the main agent, not by subagents, not by the user mid-campaign.
+
+The reason: changing constraints, themes, entrypoints, or `experiment_budget` mid-campaign would compromise experiment comparability. Two experiments run under different `experiment_budget` values aren't comparable on val loss; two experiments evaluated under different `constraints` may conflict on what counts as acceptable. The campaign is a controlled study; `config.json` is the protocol.
+
+If the user genuinely needs to change settings, the path is: complete or abandon the current campaign, start a new campaign with a different `project_name`. Multiple campaigns can coexist in the same project (per the multi-campaign isolation property).
+
+The main agent re-reads `config.json` at every iteration to recover its working knowledge after compaction, but it does not modify the file. If a subagent ever attempts to write to `config.json`, the main agent rejects the resulting return as malformed.
 
 ## Phase 1: Loop body
 
@@ -315,8 +338,8 @@ Runs forever after Phase 0. Main agent's per-iteration script:
 
 ```
 loop forever:
-    # 1. Small reads
-    read config.json, ideas.md, insights.md, results.csv tail
+    # 1. Small reads — full files; all bounded for the campaign's lifetime
+    read config.json, ideas.md, insights.md, results.csv (full)
     scan experiments/ frontmatters (status fields only)
 
     # 2. Resumption / reconciliation — idempotent, runs every iteration
@@ -409,11 +432,30 @@ If `isolation: "worktree"` is not used (e.g., the harness doesn't support it for
 
 Every experiment's code is preserved on its branch forever, regardless of outcome. Auditability requirement met in full.
 
-**No rebasing onto `main`.** The campaign trunk is self-contained. Reconciling with `main` at the end (if ever) is a human decision outside the skill's scope.
+### Acceptance criteria
+
+The Experimenter recommends `result_status` based on the experiment's val loss compared to the **current best** — not the original baseline (experiment 001). "Current best" = the lowest `final_val_loss` among all experiments with `job_status: succeeded` and `result_status: accepted`. The main agent provides this number in the Experimenter's input contract so the Experimenter doesn't need to recompute it.
+
+Recommendation rules (Experimenter applies; main agent rubber-stamps):
+
+| Val-loss delta vs. current best | Recommendation |
+|---|---|
+| improvement > 1% (i.e., new < best * 0.99) | `accepted` (provided training was stable; see below) |
+| 0–1% improvement | `inconclusive` (log; may revisit later, possibly combined with other changes) |
+| no improvement or regression | `rejected` |
+
+Stability gate (applied even when val-loss improves): training must show no divergence, no oscillation past the early phase, and no NaN/inf. If the gate fails, the recommendation drops to `rejected` regardless of val-loss improvement.
+
+Complexity check: `acceptance_recommendation` should also weigh added complexity against the magnitude of improvement. The Experimenter's `reasoning_short` records this judgment.
 
 ### Monitor usage
 
-The Experimenter uses `Monitor` inside its dispatch to stream job-state transitions (one notification per terminal state, not per-poll). The main agent does not use `Monitor` directly — it waits synchronously on the Experimenter dispatch.
+The Experimenter uses `Monitor` inside its dispatch to stream job-state transitions (one notification per terminal state, not per-poll). The main agent does not use `Monitor` against the Experimenter dispatch itself, for two reasons:
+
+1. **`Monitor` watches a script's stdout; subagent dispatches via the `Agent` tool don't expose stdout in that form.** The `Agent` tool returns one final message (sync) or one completion notification (with `run_in_background: true`) — neither is a stream. So Monitor isn't a fit for Experimenter dispatches even mechanically.
+2. **The main agent has no in-flight work to do during an Experimenter dispatch under the current design** (serial loop). Pipelining the next Ideator call against an in-flight Experimenter is plausible future work but is explicitly out of scope here.
+
+So the dispatch model stays: **main agent dispatches Experimenter synchronously and awaits the structured return.** The Experimenter is internally responsible for streaming progress (via Monitor on the underlying job) and condensing it to its return.
 
 ### Retry policy
 
@@ -436,7 +478,17 @@ plugins/ml-research/agents/
 └── autoresearch-reviewer.md
 ```
 
-Each has frontmatter (`name`, `description`, `tools` allowlist) plus a detailed system prompt. Main agent dispatches via the `Agent` tool with `subagent_type: "ml-research:autoresearch-<role>"`.
+Each has frontmatter (`name`, `description`, `tools` allowlist, default `model` and `effort`) plus a detailed system prompt. Main agent dispatches via the `Agent` tool with `subagent_type: "ml-research:autoresearch-<role>"` and an optional `model` override.
+
+### Default model + effort per subagent
+
+| Subagent | Default model | Default effort | Reasoning |
+|---|---|---|---|
+| Ideator | Opus 4.7 | medium | Idea quality is high-leverage and infrequent (one call per loop iteration when the user queue is empty). The cost of a bad idea is a wasted experiment (substantial GPU time); spending Opus tokens to pick well pays for itself easily. |
+| Experimenter | Sonnet 4.6 | medium | Bulk of token generation is mechanical (file edits, command running, log reading). Sonnet is more than adequate at the implementation level. The debug loop's diagnoses use the same model — Sonnet handles standard crash patterns well. |
+| Reviewer | Opus 4.7 | medium | Cross-experiment synthesis is high-leverage and infrequent (every 5 succeeded experiments). Opus is better at finding patterns vs. just restating individual experiment summaries. |
+
+These are defaults in each agent's frontmatter; the main agent can override per dispatch (e.g., promote Experimenter to Opus for an unusually tricky implementation). User can also override at the plugin level.
 
 ### Tool allowlists
 
@@ -456,8 +508,9 @@ Every dispatch prompt includes:
 Campaign: <project_name>
 Trunk: autoresearch/<project_name> @ <git SHA>
 config.json: <embedded JSON, full>
-insights.md: <embedded, full — bounded ~50 lines>
-Recent experiments (CSV tail, last ~20 rows): <embedded>
+insights.md: <embedded, full>
+Results CSV: <embedded, full — typically tens of rows, each ~150 B>
+Current best: experiment <id>, final_val_loss <number>
 ```
 
 Plus a role-specific section (details in "Output contracts" below).
@@ -491,6 +544,17 @@ Internal references (`ref:` to prior experiments or `insights.md` anchors) are v
 
 Source quality is a ranking dimension: between two ideas of comparable expected impact, the Ideator returns the one with stronger reference-implementation grounding.
 
+**Curated starter source list** — the Ideator's system prompt includes a curated list of sites to consult first when looking for techniques. Recommended starting set (edit per project domain in the agent file):
+
+- arxiv (cs.LG, cs.CL, cs.CV — theme/domain dependent)
+- paperswithcode.com — for paper → reference-impl crosswalk
+- HuggingFace docs and model repos
+- Major reference codebases for the model family (e.g., nanoGPT, fairseq, jax-models, levanter)
+- distill.pub, lilianweng.github.io, sebastianraschka.com — for high-quality digest articles
+- Recent NeurIPS / ICML / ICLR proceedings
+
+The Ideator is expected to consult these *before* speculating from first principles. Web search calls land in the Ideator's context, not the main agent's.
+
 **Experimenter returns** (success path):
 
 ```json
@@ -509,7 +573,7 @@ Source quality is a ranking dimension: between two ideas of comparable expected 
     "final_val_loss": 2.41
   },
   "acceptance_recommendation": "accept",
-  "reasoning_short": "3% val loss improvement over baseline, stable training, no added complexity",
+  "reasoning_short": "3% val loss improvement over current best (exp 037), stable training, no added complexity",
   "follow_ups": [
     "Try combining with warmup schedule (insight #2 suggests interaction)"
   ],
@@ -564,10 +628,15 @@ while attempt <= debug_cap:
     else:
         apply diagnosed fix, commit
     run count_params entrypoint, verify param budget (<= baseline * 1.05)
+    if compile_cache_dir is set and theme == "architecture":
+        wipe compile_cache_dir before launch (architecture changes invalidate compiled kernels)
     run launch_experiment entrypoint, get job_id
+        (export TORCHINDUCTOR_CACHE_DIR=compile_cache_dir if set)
     monitor job to terminal state via env-appropriate skill
+    while job runs: poll nvidia-smi periodically; record GPU utilization
     if job succeeded:
-        analyze logs/metrics
+        run read_metrics entrypoint, get metrics JSON
+        analyze metrics, GPU utilization, training curves
         return success summary + narrative
     else:  # job crashed
         diagnose from logs (OOM, NaN, python error, node fail, timeout, unknown)
@@ -590,17 +659,45 @@ while attempt <= debug_cap:
 | Node failure / preemption | Resubmit unchanged (infra issue) | yes (cheap) |
 | Unknown / unparseable logs | Give up | no |
 
+### GPU utilization
+
+The Experimenter polls `nvidia-smi` (or the env-appropriate equivalent) periodically while the job runs and records peak/mean GPU utilization. The narrative includes this in the "Training dynamics" section.
+
+If utilization is materially low on a *successful* run (e.g., < 70% mean), the Experimenter's analysis flags it as a potential issue and the `follow_ups` field includes "consider larger batch size to improve MFU" or similar. Low utilization does not by itself trigger a retry on a successful run — the result still counts. It does inform the next experiment's choices.
+
+If utilization is low on a *crashed* run that the Experimenter is otherwise about to retry (e.g., crash was OOM), the fix-and-retry naturally improves utilization (larger effective batch, fewer accumulation micro-steps).
+
+### `torch.compile` cache reuse
+
+If `compile_cache_dir` is set in `config.json`, the Experimenter exports `TORCHINDUCTOR_CACHE_DIR` (or the appropriate env var for the user's compile backend) when launching, pointing at that directory. The cache is shared across experiments to amortize compilation overhead.
+
+**Invalidation rule:** when the experiment's theme is `architecture`, the Experimenter wipes the cache before launching the job (`rm -rf $compile_cache_dir/*`). Architecture changes can invalidate compiled kernels in subtle ways; safer to recompile from scratch.
+
+For other themes (optimizer, augmentation, loss, etc.), the cache is reused as-is. This typically saves 1–10 minutes of compile time per experiment for non-trivial models.
+
+### Proxy-task discipline
+
+The autoresearch loop runs *small* experiments (short steps, single GPU, often a fraction of full training data) as **proxies** for full-scale runs. The real goal is to find improvements that generalize: bigger models, more data, longer training, more compute.
+
+Both the Experimenter and the Reviewer are explicitly prompted on this point. Concretely:
+
+- **Avoid changes that overfit to the proxy.** Regularization tuned specifically for short runs, hyperparameters micro-optimized for the experiment's exact step count, tricks that exploit the val set's specific composition or the random seed — these can show wins at small scale that don't survive scaling. The Experimenter should refuse to recommend such ideas as `accepted` even when val-loss improves; surface them as `inconclusive` with reasoning.
+- **Prefer changes with theoretical or empirical scaling support.** Ideas with a known scaling story (e.g., supported by scaling-law analyses, or with reference implementations validated at multiple scales) are stronger candidates than purely empirical small-scale wins.
+- **Reviewer flags proxy-overfit risk.** When synthesizing insights, the Reviewer specifically tags patterns that look like proxy-overfit (improvements that disappear when combined with other changes, regularization that helps only in this experimental regime, etc.) and adds them to "Anti-patterns" rather than "Patterns observed."
+
+This discipline isn't enforceable mechanically — it's a quality bar baked into the Experimenter and Reviewer system prompts.
+
 ### Subagent hard rules (encoded in each system prompt)
 
 - **Ideator and Reviewer:** no disk writes, no code modifications, no commits. Return structured output only.
 - **Experimenter:**
-    - Writes only to files matching `relevant_files.editable`.
-    - Does not touch `autoresearch/*` tracking files (main agent owns those).
-    - Commits only on the experiment branch. Never commits on trunk.
-    - No `git merge`, `git rebase`, or destructive git ops.
+  - Writes only to files matching `relevant_files.editable`.
+  - Does not touch `autoresearch/*` tracking files (main agent owns those).
+  - Commits only on the experiment branch. Never commits on trunk.
+  - No `git merge`, `git rebase`, or destructive git ops.
 - **Every subagent:**
-    - Must respect all `constraints` from `config.json`.
-    - Must not propose or implement changes that modify validation dataset, validation logic, or validation metrics.
+  - Must respect all `constraints` from `config.json`.
+  - Must not propose or implement changes that modify validation dataset, validation logic, or validation metrics.
 
 ## Files & migration
 
@@ -648,9 +745,9 @@ Thin — orchestration only, no ML-research expertise. Length target: 200–300 
 
 Lengths are approximate upper targets — these don't touch main-agent context, so there's no penalty for depth:
 
-- **`autoresearch-ideator.md`** (~400 lines): research ideation — reading past experiments, evaluating expected impact, hunting for reference implementations, duplicate-checking, writing good rationales, citation-quality rules.
-- **`autoresearch-experimenter.md`** (~600 lines): implementation — localizing code changes, running entrypoints, `Monitor` patterns, crash diagnosis repertoire, fix-per-crash-type playbook, narrative-writing conventions.
-- **`autoresearch-reviewer.md`** (~250 lines): synthesis — efficient scan of N experiment files, pattern identification (not restatement), pruning stale insights, grounding every insight in experiment IDs, strategic-note guidelines.
+- **`autoresearch-ideator.md`** (~400-500 lines): research ideation — reading past experiments, evaluating expected impact, hunting for reference implementations, duplicate-checking, writing good rationales, citation-quality rules, curated source list, proxy-task discipline (don't propose ideas that are likely to be proxy-overfit wins).
+- **`autoresearch-experimenter.md`** (~600-800 lines): implementation — localizing code changes within `editable` globs, running entrypoints (count_params, launch_experiment, read_metrics), `Monitor` patterns, GPU-utilization tracking, `torch.compile` cache reuse and invalidation, crash diagnosis repertoire, fix-per-crash-type playbook, narrative-writing conventions, acceptance-criterion application against current best, proxy-task discipline.
+- **`autoresearch-reviewer.md`** (~300 lines): synthesis — efficient scan of N experiment files, pattern identification (not restatement), pruning stale insights, grounding every insight in experiment IDs, proxy-overfit detection, strategic-note guidelines.
 
 ### Migration from current skill
 
