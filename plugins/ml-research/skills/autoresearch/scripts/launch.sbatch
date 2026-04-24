@@ -21,7 +21,6 @@ export TMPDIR=$JOB_DIR
 declare -a FIT_ARGS=(
     --seed_everything=42 \
     --config=config/conf.yaml \
-    --config=.claude/skills/autoresearch/config.yaml \
     --trainer.num_nodes=$SLURM_NNODES \
     --trainer.devices=$SLURM_NTASKS_PER_NODE \
     --data.mdata_path=$DATA_DIR/combined.h5mu \
@@ -33,8 +32,12 @@ declare -a FIT_ARGS=(
     --data.prefetch_factor=4
 )
 
-# Additional args can be passed on the command line, e.g.:
-#   sbatch .claude/skills/autoresearch/scripts/launch.sbatch --trainer.max_epochs=50
+# Caller supplies the plugin-bundled config override (and any other layered
+# configs or arg overrides) via positional args. Because $@ is appended after
+# FIT_ARGS, later --config files override earlier ones. Example invocation:
+#   sbatch "${CLAUDE_SKILL_DIR}/scripts/launch.sbatch" \
+#     --config="${CLAUDE_SKILL_DIR}/config.yaml" \
+#     --trainer.max_epochs=50
 FIT_ARGS+=("$@")
 
 srun -l uv run --env-file=scripts/torch.env harness fit "${FIT_ARGS[@]}"

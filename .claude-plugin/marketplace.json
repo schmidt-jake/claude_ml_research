@@ -4,13 +4,16 @@
     "name": "Jake Schmidt",
     "email": "schmidt.jake.c@gmail.com"
   },
+  "metadata": {
+    "description": "Plugins for ML research on HPC clusters — SLURM job orchestration, site-specific guidance, training loop verification, and autonomous experiment iteration."
+  },
   "plugins": [
     {
       "name": "ml-research",
       "source": "./plugins/ml-research",
-      "description": "Claude Code skills for ML research on HPC: SLURM, NCSA Delta, model training verification, and autonomous research iteration.",
+      "description": "Claude Code skills for ML research on HPC: SLURM, NCSA Delta, University of Utah CHPC, model training verification, and autonomous research iteration.",
       "category": "ml-research",
-      "tags": ["slurm", "hpc", "ml", "gpu", "ncsa-delta"]
+      "tags": ["slurm", "hpc", "ml", "gpu", "pytorch-lightning", "ncsa-delta", "chpc"]
     }
   ]
 }

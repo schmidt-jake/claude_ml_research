@@ -1,11 +1,11 @@
 ---
 name: model-training
-description: Procedure for testing a model training loop prior to training. Use once a model is ready for training, before launching a full training run.
+description: Staged pre-flight test procedure for an ML training loop before launching a full run. Use when the user says a model is "ready to train", asks for a "shakedown" / "smoke test" / "sanity check" before a big run, wants to verify the training loop, or is about to submit a long training job. Covers code correctness (fast_dev_run), learnability (overfit-one-batch), GPU efficiency (profiler + utilization), and fault tolerance (SIGUSR1 checkpoint/requeue). Composes with the `slurm` skill when tests need to run on a cluster.
 ---
 
 Run a sequence of tests for the provided training loop. The tests build on each other and should be run in order — each one progressively tests more complex functionality. If a test fails, stop and fix the issue before continuing.
 
-All tests require a GPU. Before starting, check for a local GPU with `nvidia-smi`. If one is available, run the test commands directly. If not, use the slurm skill to write and submit an appropriate sbatch script (single GPU, short wall time, no W&B logging) for each test.
+All tests require a GPU. Before starting, check for a local GPU with `nvidia-smi`. If one is available, run the test commands directly. If not, **load the `/ml-research:slurm` skill first**, then use it to write and submit an appropriate sbatch script (single GPU, short wall time, no W&B logging) for each test.
 
 The test commands use `uv run harness fit` with config layering (later `--config` flags override earlier ones). Every test command should include:
 - `--trainer.logger=false` to avoid polluting the W&B dashboard with test runs
@@ -123,7 +123,7 @@ Re-run this test whenever modifying:
 After all tests pass, prepare a full-scale training run:
 
 1. **Clean working directory.** `git status --porcelain` must be empty, so the commit hash tracked by W&B uniquely identifies the code used for training.
-2. **Select partition.** Use the slurm skill to choose the right GPU partition based on the model's memory and compute requirements.
+2. **Select partition.** Load the `/ml-research:slurm` skill to choose the right GPU partition based on the model's memory and compute requirements.
 3. **Configure.** Adjust hyperparameters via config overrides or a new config file layered on top. For multi-GPU, the sbatch scripts automatically add `--config=config/fsdp.yaml` when `SLURM_NTASKS_PER_NODE > 1`.
 4. **Submit.** `sbatch scripts/train.sbatch` (or the appropriate variant like `train_precomputed.sbatch`).
 5. **Monitor.** Watch the run for the first few epochs in W&B. Check that loss curves, metrics, and GPU utilization look healthy. If anything looks off, stop the run and investigate before proceeding.

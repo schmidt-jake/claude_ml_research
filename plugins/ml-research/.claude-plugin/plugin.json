@@ -1,9 +1,22 @@
 {
   "name": "ml-research",
-  "description": "Claude Code skills for ML research on HPC: SLURM, the NCSA Delta cluster, model training verification, and autonomous research iteration.",
-  "version": "0.1.0",
+  "description": "Claude Code skills for ML research on HPC: SLURM, the NCSA Delta cluster, the University of Utah CHPC, model training verification, and autonomous research iteration.",
   "author": {
     "name": "Jake Schmidt",
     "email": "schmidt.jake.c@gmail.com"
-  }
+  },
+  "homepage": "https://github.com/schmidt-jake/claude_ml_research",
+  "repository": "https://github.com/schmidt-jake/claude_ml_research",
+  "license": "MIT",
+  "keywords": [
+    "slurm",
+    "hpc",
+    "ml",
+    "gpu",
+    "pytorch-lightning",
+    "ncsa-delta",
+    "chpc",
+    "training",
+    "autoresearch"
+  ]
 }
