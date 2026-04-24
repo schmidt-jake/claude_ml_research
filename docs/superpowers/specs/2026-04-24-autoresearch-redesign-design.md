@@ -110,9 +110,9 @@ Notes on semantics:
 
 - **`relevant_files`** is a hard safety rail for Experimenter. Shell-style globs (`**`, `*`, `?`). Subagents may *edit existing files or create new files* at paths matching `editable`; they may *read* files matching `read_only`; files outside both lists are implicitly off-limits to both reads and writes (other than the standard project-orientation reads like `pyproject.toml` or `README.md`). The constraint is about which paths can be touched, not whether the files preexist.
 - **`entrypoints`** — pluggable user-provided commands. All contracts are documented in SKILL.md (not duplicated per-campaign):
-    - `count_params.command` must print JSON with keys `trainable_params`, `total_params` to stdout.
-    - `launch_experiment.command` must submit a job, print its job ID to stdout, and accept training overrides as positional args. **It must also write final-metrics output that `read_metrics.command` can return.** No agent ever streams stdout/stderr from `launch_experiment.command` into its context — the only path from job to context is via `read_metrics`.
-    - `read_metrics.command` is invoked after the job completes (with `JOB_ID` as an env var) and must print JSON to stdout containing at minimum `{"final_train_loss": float, "final_val_loss": float}`. Other metrics keys (e.g. best-val-loss, GPU utilization) are allowed and surfaced into the experiment file. Implementations: read a metrics file the launcher wrote, query a tracking service (W&B, MLflow), or grep a structured log line.
+  - `count_params.command` must print JSON with keys `trainable_params`, `total_params` to stdout.
+  - `launch_experiment.command` must submit a job, print its job ID to stdout, and accept training overrides as positional args. **It must also write final-metrics output that `read_metrics.command` can return.** No agent ever streams stdout/stderr from `launch_experiment.command` into its context — the only path from job to context is via `read_metrics`.
+  - `read_metrics.command` is invoked after the job completes (with `JOB_ID` as an env var) and must print JSON to stdout containing at minimum `{"final_train_loss": float, "final_val_loss": float}`. Other metrics keys (e.g. best-val-loss, GPU utilization) are allowed and surfaced into the experiment file. Implementations: read a metrics file the launcher wrote, query a tracking service (W&B, MLflow), or grep a structured log line.
 - **`environment`** is a free-form hint string (`"slurm"`, `"local"`, `"k8s"`, `"ray"`, …) that tells the Experimenter which env-specific skill (if any) to invoke for monitoring.
 - **`experiment_budget`** caps each experiment's compute. At least one of `max_steps` or `max_wall_time` (HH:MM:SS) must be set. The `launch_experiment` entrypoint is responsible for honoring these; the Experimenter passes them as overrides if the launcher accepts them, and otherwise relies on the launcher's own defaults. Frozen by constraint after Phase 0 — changing the budget mid-campaign would break experiment comparability.
 - **`compile_cache_dir`** (optional). If set, the Experimenter exports `TORCHINDUCTOR_CACHE_DIR` (or the equivalent env var for the user's compile backend) when launching a job. The cache is shared across experiments for speed; the Experimenter wipes it before launching when `theme: architecture` (architecture changes invalidate compiled kernels). Omit this field if the project doesn't use `torch.compile`.
@@ -677,7 +677,7 @@ For other themes (optimizer, augmentation, loss, etc.), the cache is reused as-i
 
 ### Proxy-task discipline
 
-The autoresearch loop runs *small* experiments (short steps, single GPU, often a fraction of full training data) as **proxies** for full-scale runs. The real goal is to find improvements that generalize: bigger models, more data, longer training, more compute.
+The autoresearch loop runs *small* experiments (small batch sizes, a finite and small number of training steps) as **proxies** for full-scale runs. The real goal is to find faithful improvements for bigger models trained on more data and significantly longer.
 
 Both the Experimenter and the Reviewer are explicitly prompted on this point. Concretely:
 

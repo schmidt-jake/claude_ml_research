@@ -53,6 +53,7 @@ Removed:
 **Goal:** Move existing scripts/templates/config to the new examples/ layout, create the new directories, and delete the old templates that are being replaced.
 
 **Files:**
+
 - Create dir: `plugins/ml-research/agents/`
 - Create dir: `plugins/ml-research/skills/autoresearch/templates/examples/`
 - Move: `plugins/ml-research/skills/autoresearch/scripts/count_params.py` → `plugins/ml-research/skills/autoresearch/templates/examples/count_params_lightning.py`
@@ -64,6 +65,7 @@ Removed:
 - Delete: `plugins/ml-research/skills/autoresearch/templates/autoresearch_results.csv`
 
 **Acceptance Criteria:**
+
 - [ ] `plugins/ml-research/agents/` exists and is empty
 - [ ] `plugins/ml-research/skills/autoresearch/templates/examples/` contains exactly three files: `count_params_lightning.py`, `launch_slurm_lightning.sbatch`, `lightning_trainer_config.yaml`
 - [ ] `plugins/ml-research/skills/autoresearch/scripts/` no longer exists
@@ -71,6 +73,7 @@ Removed:
 - [ ] No file under `plugins/ml-research/skills/autoresearch/templates/` has the `autoresearch_` prefix anymore (those are gone)
 
 **Verify:**
+
 ```bash
 test -d plugins/ml-research/agents/ \
   && test -f plugins/ml-research/skills/autoresearch/templates/examples/count_params_lightning.py \
@@ -81,6 +84,7 @@ test -d plugins/ml-research/agents/ \
   && ! ls plugins/ml-research/skills/autoresearch/templates/autoresearch_* 2>/dev/null \
   && echo OK
 ```
+
 Expected output: `OK`
 
 **Steps:**
@@ -131,6 +135,7 @@ test -d plugins/ml-research/agents/ \
   && ! ls plugins/ml-research/skills/autoresearch/templates/autoresearch_* 2>/dev/null \
   && echo OK
 ```
+
 Expected: `OK`
 
 - [ ] **Step 6: Commit**
@@ -147,12 +152,14 @@ git commit -m "Restructure autoresearch: move scripts to examples/, drop autores
 **Goal:** Create the four campaign-initialization templates that Phase 0 setup will copy/scaffold into a new worktree.
 
 **Files:**
+
 - Create: `plugins/ml-research/skills/autoresearch/templates/config.json`
 - Create: `plugins/ml-research/skills/autoresearch/templates/ideas.md`
 - Create: `plugins/ml-research/skills/autoresearch/templates/insights.md`
 - Create: `plugins/ml-research/skills/autoresearch/templates/results.csv`
 
 **Acceptance Criteria:**
+
 - [ ] `templates/config.json` is valid JSON and matches the schema in spec § "Data model → autoresearch/config.json"
 - [ ] `templates/config.json` uses placeholder values that signal "needs to be filled in by Phase 0" (not real defaults)
 - [ ] `templates/ideas.md` has a comment header explaining FIFO user-input semantics
@@ -161,6 +168,7 @@ git commit -m "Restructure autoresearch: move scripts to examples/, drop autores
 - [ ] Every file ends with a trailing newline
 
 **Verify:**
+
 ```bash
 python3 -c "import json; json.load(open('plugins/ml-research/skills/autoresearch/templates/config.json'))" \
   && grep -q "FIFO" plugins/ml-research/skills/autoresearch/templates/ideas.md \
@@ -172,6 +180,7 @@ python3 -c "import json; json.load(open('plugins/ml-research/skills/autoresearch
        | grep -q "^experiment_id,branch,commit,job_id,wandb_url,trainable_params,total_params,final_train_loss,final_val_loss$" \
   && echo OK
 ```
+
 Expected output: `OK`
 
 **Steps:**
@@ -295,6 +304,7 @@ python3 -c "import json; json.load(open('plugins/ml-research/skills/autoresearch
        | grep -q "^experiment_id,branch,commit,job_id,wandb_url,trainable_params,total_params,final_train_loss,final_val_loss$" \
   && echo OK
 ```
+
 Expected: `OK`
 
 - [ ] **Step 6: Commit**
@@ -311,6 +321,7 @@ git commit -m "Add autoresearch campaign templates (config.json, ideas.md, insig
 **Goal:** Create `plugins/ml-research/agents/autoresearch-ideator.md` — the system prompt for the subagent that generates one experiment idea with citations per dispatch.
 
 **Spec sections to consult:**
+
 - § "Subagents → Default model + effort per subagent" (Ideator row)
 - § "Subagents → Tool allowlists" (Ideator row)
 - § "Subagents → Input contract (common dispatch header)"
@@ -322,9 +333,11 @@ git commit -m "Add autoresearch campaign templates (config.json, ideas.md, insig
 - § "Subagents → Subagent hard rules"
 
 **Files:**
+
 - Create: `plugins/ml-research/agents/autoresearch-ideator.md`
 
 **Acceptance Criteria:**
+
 - [ ] File starts with valid YAML frontmatter containing `name: autoresearch-ideator`, `description: ...`, `model: opus`, `effort: medium`, `disallowedTools: Edit, Write` (read-only enforcement), and a `tools` allowlist that includes WebSearch, WebFetch, Read, Grep, Bash
 - [ ] System prompt body includes (each as a section heading):
   - Identity and scope (one experiment idea per dispatch, no disk writes)
@@ -339,6 +352,7 @@ git commit -m "Add autoresearch campaign templates (config.json, ideas.md, insig
 - [ ] Length is in the 400–600 line range (per spec)
 
 **Verify:**
+
 ```bash
 python3 -c "
 import yaml, sys
@@ -358,6 +372,7 @@ for required in ['Identity', 'Input contract', 'Output contract', 'Citation', 'C
 print('OK')
 "
 ```
+
 Expected: `OK`
 
 **Steps:**
@@ -501,6 +516,7 @@ for required in ['Identity', 'Input contract', 'Output contract', 'Citation', 'C
 print('OK')
 "
 ```
+
 Expected: `OK`
 
 - [ ] **Step 3: Commit**
@@ -518,6 +534,7 @@ git commit -m "Add autoresearch-ideator agent definition"
 **Goal:** Create `plugins/ml-research/agents/autoresearch-experimenter.md` — the system prompt for the subagent that runs one experiment end-to-end (implement, launch, monitor, analyze, with internal debug retry).
 
 **Spec sections to consult:**
+
 - § "Subagents → Default model + effort" (Experimenter row)
 - § "Subagents → Tool allowlists" (Experimenter row)
 - § "Subagents → Input contract"
@@ -532,9 +549,11 @@ git commit -m "Add autoresearch-ideator agent definition"
 - § "Data model → autoresearch/experiments/NNN-<slug>.md" (the narrative format Experimenter writes)
 
 **Files:**
+
 - Create: `plugins/ml-research/agents/autoresearch-experimenter.md`
 
 **Acceptance Criteria:**
+
 - [ ] Frontmatter has `name: autoresearch-experimenter`, `description: ...`, `model: sonnet`, `effort: medium`, `isolation: worktree`, and a `tools` allowlist (Bash, Read, Edit, Write, Grep, Monitor; Skill access for `ml-research:slurm` and `ml-research:model-training` is implicitly available via the Skill tool)
 - [ ] Body contains sections for: Identity, Input contract, Output contracts (both paths), Internal debug loop (with code-block pseudocode), Diagnosis→fix table (verbatim from spec), GPU utilization tracking, torch.compile cache invalidation rule, Acceptance criteria application, Narrative writing conventions, Hard rules
 - [ ] No SLURM-specific commands hardcoded — all environment-specific ops route through the env-appropriate skill (`ml-research:slurm` or whatever `entrypoints.launch_experiment.environment` indicates)
@@ -542,6 +561,7 @@ git commit -m "Add autoresearch-ideator agent definition"
 - [ ] Length is in the 600–800 line range (per spec)
 
 **Verify:**
+
 ```bash
 python3 -c "
 import yaml, sys
@@ -563,6 +583,7 @@ assert 'tail -f' not in body or 'do NOT' in body.lower() or 'must not' in body.l
 print('OK')
 "
 ```
+
 Expected: `OK`
 
 **Steps:**
@@ -697,6 +718,7 @@ for required in ['Identity', 'Input contract', 'Output contract', 'debug loop', 
 print('OK')
 "
 ```
+
 Expected: `OK`
 
 - [ ] **Step 3: Commit**
@@ -713,6 +735,7 @@ git commit -m "Add autoresearch-experimenter agent definition"
 **Goal:** Create `plugins/ml-research/agents/autoresearch-reviewer.md` — the system prompt for the subagent that synthesizes cross-experiment insights every 5 succeeded experiments.
 
 **Spec sections to consult:**
+
 - § "Subagents → Default model + effort" (Reviewer row)
 - § "Subagents → Tool allowlists" (Reviewer row)
 - § "Subagents → Input contract"
@@ -722,14 +745,17 @@ git commit -m "Add autoresearch-experimenter agent definition"
 - § "Subagents → Subagent hard rules" (Reviewer is read-only)
 
 **Files:**
+
 - Create: `plugins/ml-research/agents/autoresearch-reviewer.md`
 
 **Acceptance Criteria:**
+
 - [ ] Frontmatter has `name: autoresearch-reviewer`, `description: ...`, `model: opus`, `effort: medium`, `disallowedTools: Edit, Write, Bash` (effectively read-only — Bash allowed in read-only invocations only, but disallowing it entirely is simpler and the Reviewer doesn't need it), and `tools: Read, Grep`
 - [ ] Body contains sections for: Identity, Input contract, Output contract (insights delta JSON), Synthesis approach (pattern identification, not restatement), Proxy-overfit detection, Strategic-note guidelines, Hard rules
 - [ ] Length is in the 250-350 line range (per spec)
 
 **Verify:**
+
 ```bash
 python3 -c "
 import yaml, sys
@@ -749,6 +775,7 @@ for required in ['Identity', 'Input contract', 'Output contract', 'Synthesis', '
 print('OK')
 "
 ```
+
 Expected: `OK`
 
 **Steps:**
@@ -874,6 +901,7 @@ for required in ['Identity', 'Input contract', 'Output contract', 'Synthesis', '
 print('OK')
 "
 ```
+
 Expected: `OK`
 
 - [ ] **Step 3: Commit**
@@ -890,6 +918,7 @@ git commit -m "Add autoresearch-reviewer agent definition"
 **Goal:** Replace `plugins/ml-research/skills/autoresearch/SKILL.md` with a thin orchestrator prompt that handles Phase 0 setup interactively, runs the Phase 1 loop, owns trunk-side git ops, and dispatches the three subagents.
 
 **Spec sections to consult:**
+
 - § "Architecture" (overall actor map)
 - § "Phase 0: Setup" (full procedure)
 - § "Phase 1: Loop body" (full pseudocode, including resumption, idea selection, dispatch, post_experimenter handler)
@@ -899,9 +928,11 @@ git commit -m "Add autoresearch-reviewer agent definition"
 - § "Files & migration → SKILL.md shape"
 
 **Files:**
+
 - Replace: `plugins/ml-research/skills/autoresearch/SKILL.md`
 
 **Acceptance Criteria:**
+
 - [ ] Frontmatter has `name: autoresearch`, `description: ...` describing trigger conditions
 - [ ] Body has top-level sections for: Phase 0 (with subsections for invocation, decision flow, setup dialog, default constraints/themes, artifact init, initial commit), Phase 1 (loop body, resumption, idea selection, dispatch, git choreography, post_experimenter handler), Acceptance criteria, Retry policy, Autonomy principle
 - [ ] References to the three subagents use the correct `subagent_type` strings: `ml-research:autoresearch-ideator`, `ml-research:autoresearch-experimenter`, `ml-research:autoresearch-reviewer`
@@ -911,6 +942,7 @@ git commit -m "Add autoresearch-reviewer agent definition"
 - [ ] Length is in the 200-300 line range (per spec)
 
 **Verify:**
+
 ```bash
 python3 -c "
 import yaml
@@ -928,6 +960,7 @@ for forbidden in ['sbatch ', 'sacct ', 'squeue ', 'uv run harness fit', 'Lightni
 print('OK')
 "
 ```
+
 Expected: `OK`
 
 **Steps:**
@@ -1072,6 +1105,7 @@ for forbidden in ['sbatch ', 'sacct ', 'squeue ', 'uv run harness fit', 'Lightni
 print('OK')
 "
 ```
+
 Expected: `OK`
 
 - [ ] **Step 4: Commit**
@@ -1090,6 +1124,7 @@ git commit -m "Rewrite autoresearch SKILL.md as thin orchestrator"
 **Files:** none modified.
 
 **Acceptance Criteria:**
+
 - [ ] `claude plugin validate plugins/ml-research/` exits 0
 - [ ] `claude plugin validate .` (marketplace.json) exits 0
 - [ ] All three agent files are syntactically discoverable (frontmatter parses; `name` field set)
@@ -1097,6 +1132,7 @@ git commit -m "Rewrite autoresearch SKILL.md as thin orchestrator"
 - [ ] No file in the plugin contains a leftover hardcoded reference to the old script paths (`scripts/count_params.py`, `scripts/launch.sbatch`)
 
 **Verify:**
+
 ```bash
 claude plugin validate plugins/ml-research/ 2>&1 | tee /tmp/validate.out \
   && claude plugin validate . 2>&1 | tee /tmp/validate-marketplace.out \
@@ -1113,6 +1149,7 @@ print('all agents OK')
        --include='*.md' --include='*.json' --include='*.yaml' \
   && echo OK
 ```
+
 Expected: `OK` (with the validate commands' own success output above it)
 
 **Steps:**
@@ -1124,6 +1161,7 @@ claude plugin validate plugins/ml-research/
 ```
 
 If this fails, read the error output carefully. Common issues:
+
 - Missing fields in frontmatter (the validator may flag these)
 - Invalid `tools:` allowlist values in agent frontmatter
 - File ref'd by SKILL.md that doesn't exist
