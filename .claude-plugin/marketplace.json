@@ -1,0 +1,16 @@
+{
+  "name": "jschmidt",
+  "owner": {
+    "name": "Jake Schmidt",
+    "email": "schmidt.jake.c@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "ml-research",
+      "source": "./plugins/ml-research",
+      "description": "Claude Code skills for ML research on HPC: SLURM, NCSA Delta, model training verification, and autonomous research iteration.",
+      "category": "ml-research",
+      "tags": ["slurm", "hpc", "ml", "gpu", "ncsa-delta"]
+    }
+  ]
+}

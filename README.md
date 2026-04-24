@@ -1,8 +1,12 @@
 # ml-research
 
-A [Claude Code plugin](https://code.claude.com/docs/en/plugins) bundling skills for ML research on HPC clusters.
+A [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-marketplaces) hosting plugins for ML research on HPC.
 
-## Skills
+## Plugins
+
+### `ml-research`
+
+Skills bundle for HPC-based ML research:
 
 - **`slurm`** — Submit, monitor, and debug SLURM jobs; pick partitions; tune batch size; diagnose OOM/timeout/node errors.
 - **`delta-cluster`** — NCSA Delta-specific guidance (partitions, charge rates, `/work` vs `/projects`, `bdhi` account). Composes with `slurm`.
@@ -11,26 +15,33 @@ A [Claude Code plugin](https://code.claude.com/docs/en/plugins) bundling skills 
 
 ## Install
 
-Test locally:
-
-```bash
-claude --plugin-dir /path/to/ml_research
+```shell
+/plugin marketplace add <github-user>/ml_research
+/plugin install ml-research@jschmidt
 ```
 
-Or install from a marketplace once published. Skills are namespaced as `/ml-research:<skill>` (e.g. `/ml-research:slurm`).
+Once installed, skills are namespaced as `/ml-research:slurm`, `/ml-research:delta-cluster`, etc.
+
+### Local development
+
+```bash
+claude --plugin-dir /path/to/ml_research/plugins/ml-research
+```
+
+Run `/reload-plugins` after edits.
 
 ## Layout
 
 ```
 ml_research/
-├── .claude-plugin/plugin.json
-└── skills/
-    ├── autoresearch/
-    │   ├── SKILL.md
-    │   ├── config.yaml
-    │   ├── scripts/
-    │   └── templates/
-    ├── delta-cluster/SKILL.md
-    ├── model-training/SKILL.md
-    └── slurm/SKILL.md
+├── .claude-plugin/
+│   └── marketplace.json       # marketplace catalog
+└── plugins/
+    └── ml-research/
+        ├── .claude-plugin/plugin.json
+        └── skills/
+            ├── autoresearch/
+            ├── delta-cluster/
+            ├── model-training/
+            └── slurm/
 ```
