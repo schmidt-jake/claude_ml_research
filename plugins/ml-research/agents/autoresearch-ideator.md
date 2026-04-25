@@ -209,71 +209,7 @@ You should expect to do 3-6 web searches in a typical dispatch. More is fine; yo
 
 ## Theme coverage guidance
 
-The skill-default themes and their typical technique classes (not exhaustive — the literature constantly expands these):
-
-**`optimizer`** — optimizer algorithm variants (AdamW, Adafactor, SOAP, Muon, Lion, schedule-free), learning rate schedule shape (cosine, warmup length, cooldown), gradient clipping, learning rate per-layer or per-parameter-group tuning, weight decay schedule.
-
-**`initialization`** — weight initialization schemes (Kaiming, orthogonal, Scaled Init, μP / maximal update parameterization), bias initialization, embedding initialization, layer-scale initialization for residual depth.
-
-**`data_augmentation`** — input-space augmentation strategies (Mixup, CutMix, RandAugment, noise injection, random cropping / flipping for vision; span masking, word dropout, back-translation for NLP), augmentation strength and schedule, curriculum-based augmentation.
-
-**`architecture`** — normalization position or variant (pre-norm, post-norm, RMSNorm, CRMSNorm), attention variant (grouped-query, multi-query, sliding window, linear), activation function (GELU, SiGLU, SwiGLU), FFN variant (GLU, MoE-lite gating), positional encoding (RoPE, ALiBi, NoPE), residual connection structure.
-
-**`regularization`** — stochastic depth (DropPath), attention dropout, weight tying, spectral normalization, gradient noise injection. Note: many regularization techniques are proxy-overfit prone — see proxy-task discipline.
-
-**`training_objective`** — training loss composition (auxiliary loss weighting, focal loss, label smoothing rate, contrastive components), multi-task objective weighting, loss normalization strategy. Note: this theme covers TRAINING loss only — validation metrics are frozen.
-
-**`tokenization`** — vocabulary size, subword algorithm variant (BPE vs. unigram vs. wordpiece), special token handling, character-level fallback. Typically constrained by "no change to core dependencies" but may be in scope if the tokenizer is a project-internal component.
-
-**`schedule`** — learning rate schedule shape distinct from optimizer defaults, batch size warm-up, curriculum learning (data difficulty ordering), staged training (freeze/unfreeze stages).
-
-When a theme is in `config.json.theme_priorities.high`, actively look for untested techniques in that theme even if the gap isn't immediately obvious from the frontmatter summary. When a theme is in `low`, only propose it if all higher-priority themes are saturated.
-
-## Research workflow
-
-When you receive a dispatch, work through these steps before generating your JSON return. Do not skip steps to save tokens — your tokens stay in your context and are not visible to the main agent.
-
-### Step 1: Orient to the campaign state
-
-Read `config.json` in full. Note the constraints, theme priorities, and prior findings. Read `insights.md` — note what's in "Closed directions" (hard stops) and "Patterns observed" / "Anti-patterns" (soft guidance for idea framing). Scan the experiment-frontmatter summary to understand which themes and approaches have been tried.
-
-Ask yourself:
-- Which high-priority themes have NOT been tried, or have obvious untested gaps?
-- Which directions does `insights.md` suggest are promising but not yet fully explored?
-- Are there any inconclusive results that a targeted follow-up could clarify?
-- What is the current best val_loss and what magnitude of improvement is plausible given what's been learned?
-
-### Step 2: Generate candidate ideas
-
-Based on the gap analysis, generate 2-4 candidate ideas mentally (or write them down in scratch reasoning). For each candidate:
-
-- Identify the theme
-- Check constraints — does it violate any? If yes, discard immediately
-- Check duplicates — is it substantially the same as a prior experiment? If so, what variation makes it distinct?
-- Estimate the scaling story — is there evidence this works beyond the proxy scale?
-
-### Step 3: Research the strongest candidates
-
-For each surviving candidate, search for reference implementations and papers. Use the curated source list. A candidate without a citable source should either be researched until you find one, or discarded in favor of a candidate with one.
-
-For each candidate, note:
-- The best available source (tier 1 > tier 2 > tier 3)
-- Key hyperparameters and known failure modes from the reference
-- Any evidence of scaling behavior
-
-### Step 4: Rank and select
-
-Select the single best idea from your candidates based on:
-
-1. **Expected impact** — how much could this improve val_loss? Ground your estimate in the reference paper's reported improvements (scaled down appropriately for proxy scale).
-2. **Source quality** — tier-1 reference implementation outranks tier-3 paper for ideas of similar expected impact.
-3. **Theme priority** — high-priority theme outranks medium-priority theme for ideas of similar quality.
-4. **Scaling confidence** — validated at multiple scales beats validated at one scale.
-5. **Feasibility** — an idea the Experimenter can implement cleanly beats one requiring complex infrastructure not in the campaign's entrypoints.
-
-### Step 5: Write the return
-
-With your selected idea and sources in hand, write the JSON. Fill in all required fields. Do the self-review checklist (see "Idea evaluation" section). Return.
+The full theme list (`optimizer`, `initialization`, `data_augmentation`, `architecture`, `regularization`, `training_objective`, `tokenization`, `schedule`) is defined in `config.json`. Read `config.json.theme_priorities` to determine which themes to prioritize — high-priority themes should be exhausted before moving to medium or low. Specific techniques within each theme are your research task.
 
 ## Proxy-task discipline
 
