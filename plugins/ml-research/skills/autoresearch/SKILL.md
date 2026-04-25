@@ -1,122 +1,290 @@
 ---
 name: autoresearch
-description: Autonomously iterate on an ML model via rapid small-scale experiments — trying architecture variants, data augmentations, objective tweaks, or hyperparameter changes to find improvements that hold at scale. Use when the user asks Claude to "run a sweep", "try variants", "iterate on the model", "auto-research", or open-endedly "make the model better" / "improve val loss" without specifying a single change. Runs indefinitely and self-paced; do NOT invoke for a single targeted change or one-off experiment — use the `model-training` or `slurm` skills directly for those.
+description: Autonomously iterate on an ML model via rapid small-scale experiments — trying architecture variants, data augmentations, training-objective tweaks, or hyperparameter changes to find improvements that hold at scale. Use when the user asks to "run a sweep", "try variants", "iterate on the model", "auto-research", or open-endedly "make the model better" / "improve val loss" without specifying a single change. Runs indefinitely after one-time setup; do NOT invoke for a single targeted change — use the `model-training` or `slurm` skills directly for those.
 ---
 
-Goal: iterate autonomously and indefinitely on model architecture, data augmentation, and training loop via rapid small-scale experiments to discover improvements that *work at scale*.
+# Autoresearch orchestrator
 
-## Scope
+You are the main agent for an autoresearch campaign — a controlled study running small-scale ML experiments to find improvements that generalize to full-scale training. You are a **thin orchestrator**: ML-research expertise lives in three subagents you dispatch (Ideator, Experimenter, Reviewer). Your job is to dispatch them in the right sequence, manage git state on trunk, and write trunk-side tracking files.
 
-You may change architecture, data augmentation, training loop, objective function, hyperparameters, etc. At the start of each session, identify the project's model and data modules (confirm with the user if ambiguous) — typically the `LightningModule` subclass referenced by `config/conf.yaml`'s `model.class_path` and the data-augmentation code in the corresponding `LightningDataModule`.
+Do not generate ideas, implement code, or synthesize insights yourself — those are the subagents' jobs.
 
-**Do not** modify:
+## Invocation
 
-- validation dataset, logic, or existing metrics (adding new metrics alongside existing ones is fine)
-- the random seed, number of training steps, or model width/depth
-
-**Parameter budget**: try not to exceed the baseline parameter count. Verify before submitting: `uv run python "${CLAUDE_SKILL_DIR}/scripts/count_params.py"`. Reducing parameters while maintaining performance is a valid direction.
-
-**Utility at scale**: improvements should hold at scale (bigger models, more data, longer training). Avoid changes that overfit to the specifics of the current small-scale experimental setup/budget (regularization tuned specifically for small data / short runs, hyperparameter micro-optimization, tricks that exploit the specific number of training steps or val set composition).
-
-**Engineering best practices**: All else equal, prefer changes that:
-- simplify the codebase and reduce technical debt
-- increase Model FLOPS Utilization
-
-## Worktree
-
-All work happens in a dedicated worktree at `../autoresearch` (`git worktree add ../autoresearch autoresearch`). Reuse it if it already exists. All commands, branching, and tracking files live there.
-
-## Procedure
-
-Each experiment runs on a single A100 for up to 45 min via `${CLAUDE_SKILL_DIR}/scripts/launch.sbatch`. The launch script sets `config/conf.yaml` as the base; the caller layers `${CLAUDE_SKILL_DIR}/config.yaml` on top (1 epoch, reduced val batches, 30-min timer, learning-rate monitor). The script reads two caller-supplied values (nothing is hardcoded to a specific project):
-
-- `--account=...` on the sbatch CLI — the SLURM account to charge (e.g. `<project>-delta-gpu` on Delta).
-- `AUTORESEARCH_SCRATCH_ROOT` env var — per-user scratch root; the job creates `$AUTORESEARCH_SCRATCH_ROOT/$SLURM_JOB_ID` as its working dir and exports it as `$TMPDIR`.
-
-Any data paths, model overrides, or logger settings are passed as additional CLI args after the config (later `--config=` values override earlier ones). Export `AUTORESEARCH_SCRATCH_ROOT` once per shell (e.g. in `~/.bashrc`) so you don't re-supply it each submit:
-
-```bash
-sbatch --account=<slurm-account> \
-  "${CLAUDE_SKILL_DIR}/scripts/launch.sbatch" \
-  --config="${CLAUDE_SKILL_DIR}/config.yaml" \
-  --model.lr=3e-4
+```
+/ml-research:autoresearch <campaign-name>   # activate or create a named campaign
+/ml-research:autoresearch                   # resume if cwd is inside a campaign worktree; else prompt for name
 ```
 
-To tag experiments launched via this skill (recommended, makes them filterable in your tracker), append `--trainer.logger.init_args.tags+=[autoresearch]` — or whatever syntax your logger/jsonargparse combination uses for list-append.
+`<campaign-name>` becomes the `project_name` field in `config.json`, the worktree directory suffix (`../autoresearch-<name>`), and the trunk branch suffix (`autoresearch/<name>`). Phase 0 (interactive setup) runs once; Phase 1 (autonomous loop) runs indefinitely thereafter.
 
-Run `uv run harness fit --help` for docs on available overrides.
+## Phase 0: Setup
 
-**Branching**: trunk is `autoresearch`. Each experiment gets a branch off trunk with the prefix `autoresearch/experiments/` (e.g., `autoresearch/experiments/003-gelu-activation`). Successful experiments are rebased, squash-merged into trunk. Failed branches are preserved. Rebase trunk onto `main` every ~5 experiments.
+### Decision flow
 
-**Baseline**: the first experiment runs unmodified code to establish baseline metrics.
-
-### Tracking
-
-Tracking files live in `autoresearch/` (a subdirectory of the worktree root), not in the templates directory. Templates in `${CLAUDE_SKILL_DIR}/templates/` are pristine starting points — **never edit them directly**.
-
-**Initialization**: on first run (or if a tracking file is missing), copy each template into the tracking directory:
-
-```bash
-mkdir -p autoresearch
-for f in autoresearch_ideas.md autoresearch_log.md autoresearch_results.csv; do
-  [ -f "autoresearch/$f" ] || cp "${CLAUDE_SKILL_DIR}/templates/$f" "autoresearch/$f"
-done
+```
+if worktree ../autoresearch-<name>/ does not exist:
+    git worktree add ../autoresearch-<name> -b autoresearch/<name>
+cd ../autoresearch-<name>
+if autoresearch/config.json exists:
+    → Phase 1 (resume)
+else:
+    run setup dialog (below)
+    → Phase 1
 ```
 
-Each file has a single responsibility — do not duplicate information across files.
+### Setup dialog
 
-- **`autoresearch_ideas.md`** — prioritized queue of **untried** ideas only. When you launch an experiment for an idea, remove it from this file. From that point the idea is tracked solely in the log and results CSV.
-- **`autoresearch_log.md`** — narrative research log. Each entry: description/rationale, training dynamics, analysis, and complexity assessment. **No structured data** (metrics, run metadata, acceptance status) — that belongs in the CSV. Reference experiments by ID for cross-referencing.
-- **`autoresearch_results.csv`** — single source of truth for all structured/quantitative data: experiment ID, title, branch, commit, SLURM job ID, W&B URL, date, parameter counts, metrics, acceptance status, and short notes.
+Do a lightweight codebase scan first (`ls`, read `pyproject.toml`/`package.json`/`README.md`, grep for common entrypoint scripts). Then walk the user through the sections below. Lead each section with auto-detected defaults; user confirms or edits. No subagents during Phase 0.
 
-### The loop
+**Question sequence:**
 
-1. Start from `autoresearch` HEAD.
-2. Pick an idea from `autoresearch_ideas.md` and remove it from the queue.
-3. Branch: `git checkout -b autoresearch/experiments/NNN-description`.
-4. Implement the changes.
-5. Verify param budget with `count_params.py`.
-6. Use the slurm skill to select the best partition, then submit (assumes `AUTORESEARCH_SCRATCH_ROOT` is exported):
-   ```sh
-   sbatch --account=<account> --partition=<selected> \
-     "${CLAUDE_SKILL_DIR}/scripts/launch.sbatch" \
-     --config="${CLAUDE_SKILL_DIR}/config.yaml" \
-     --trainer.logger.init_args.name="$(git branch --show-current)" \
-     --trainer.logger.init_args.notes="One-sentence summary of the change"
-   ```
-7. Monitor (poll `sacct -j <JOB_ID> --format=JobID,State,Elapsed,MaxRSS,ExitCode --noheader` every 2 min; check `logs/autoresearch/<JOB_ID>/0/std*.log` for health).
-   - OOM: reduce batch size, relaunch.
-   - NaN/exception: analyze, fix, relaunch.
-   - Healthy: refine ideas for the next experiment.
-8. Log results: add structured data (metrics, run metadata, acceptance) to `autoresearch_results.csv`; add narrative analysis (training dynamics, rationale, insights) to `autoresearch_log.md`.
-9. Accept or reject per criteria below.
+1. **Relevant files.** Heuristics: `src/**/model*.py`, `src/**/net*.py`, files importing torch.nn/flax.linen → proposed `editable`. `config/*.yaml`, `**/data*.py`, `scripts/**` → proposed `read_only`. Present proposal, take edits.
 
-### Acceptance criteria
+2. **Entrypoints.**
+   - `count_params`: command that prints `{"trainable_params": int, "total_params": int}` JSON to stdout. Detect `scripts/count_params.py` or `tools/count_params.py`. If not found, offer to scaffold one from `templates/examples/count_params_lightning.py`.
+   - `launch_experiment`: command that submits a job and prints job ID to stdout. Detect `scripts/launch.sh`, `scripts/*.sbatch`, Makefile targets. Infer `environment` from script contents (`sbatch` header → `"slurm"`, `kubectl` → `"k8s"`, bare `python` → `"local"`, …).
+   - `read_metrics`: command that — given `$JOB_ID` as an env var — prints `{"final_train_loss": float, "final_val_loss": float, ...}` JSON to stdout. Ask the user how the launcher persists final metrics and propose a reader. If unclear, offer to scaffold one.
 
-Merge into `autoresearch` if **all** hold:
+3. **Experiment budget.** Ask for `max_steps` and/or `max_wall_time` (HH:MM:SS). At least one is required; no defaults — the user must set this (it's project-specific). This value is frozen after Phase 0.
 
-- **Val loss**: lower than current best beyond a noise margin (>=1%).
-- **Stability**: no divergence, oscillation, or pathological training dynamics.
-- **Simplicity**: improvement magnitude justifies added complexity.
+4. **`torch.compile` cache.** Ask whether the project uses `torch.compile` (or equivalent). If yes, propose `~/.cache/torch_compile/<project_name>` as `compile_cache_dir`. If no, omit the field.
 
-Ambiguous results (0–1%): log and move on — may revisit or combine later.
+5. **Constraints.** Present the skill-default constraint list below, ask for additions or removals.
 
-### Recovery
+6. **Theme priorities.** Present the skill-default theme list below, ask the user to rank themes into `high`, `medium`, `low` buckets for `theme_priorities`.
 
-On resumption: verify worktree exists (`git worktree list`), check for running jobs (`squeue -u $USER -n autoresearch`), review tracking files and `git branch -a | grep autoresearch/` for unlogged work, then continue the loop.
+7. **Prior findings.** Open-ended: "What have you tried manually on this project? What worked, what didn't?" Free-form bullets for `prior_findings`.
 
-### Rollback
+8. **`debug_cap`.** Default 3; ask if the user wants to override.
 
-If a merge introduces regressions: `git revert -m 1 <merge-commit>` and record in the log.
+Before writing, present a draft `config.json` and ask for confirmation.
 
-## Generating ideas
+### Skill-default constraints
 
-Never ask for user input. If stuck:
-- Review `autoresearch_ideas.md` and `autoresearch_log.md`
-- Read papers referenced in the ideas file or codebase
-- Revisit previously rejected ideas — try variations, combine with other changes
-- Analyze training dynamics and failure modes for clues
-- Search the web, but adapt ideas to this context
-- Try more radical ideas within scope
+Seed these into `config.json`'s `constraints` list; user may add or remove:
 
-Users may volunteer feedback at any time.
+```
+- no change to random seed, validation dataset, validation logic, or validation metrics
+- no change to the experiment budget defined in config.json (experiment_budget)
+- parameter count must be <= baseline * 1.05
+- no change to core dependencies / package versions
+```
+
+### Skill-default theme list
+
+Present to user for ranking into `theme_priorities`:
+
+```
+optimizer, initialization, data_augmentation, architecture,
+regularization, training_objective, tokenization, schedule
+```
+
+`training_objective` = training-loss composition (loss function, auxiliary losses, loss weighting). It is explicitly **not** the validation metric — the validation metric is frozen by constraint.
+
+### Artifact initialization
+
+After the user confirms `config.json`, create (using templates from `${CLAUDE_SKILL_DIR}/templates/` as starting points):
+
+```
+autoresearch/config.json              # written from dialog
+autoresearch/ideas.md                 # empty with comment header
+autoresearch/insights.md              # skeleton with empty section headings
+autoresearch/results.csv              # header row only
+autoresearch/experiments/.gitkeep    # dir preserved in git
+```
+
+### Initial commit
+
+```bash
+git add autoresearch/
+git commit -m "Initialize autoresearch campaign: <project_name>"
+```
+
+### Phase 0 → Phase 1 handoff
+
+Announce setup complete, then begin Phase 1 with a **baseline dispatch** (no Ideator call): experiment 001 = unmodified code. Dispatch Experimenter to run `launch_experiment` as-is, record metrics, write `experiments/001-baseline.md` with `result_status: accepted` (trivially). First CSV row written. Normal loop begins thereafter.
+
+### Config.json freeze
+
+`config.json` is frozen after Phase 0. The main agent re-reads it at every loop iteration (for recovery after compaction) but never modifies it. If a subagent return implies it wrote to `config.json`, reject the return as malformed.
+
+If the user needs to change settings, the path is: complete or abandon the current campaign; start a new campaign with a different `project_name`.
+
+## Phase 1: Loop body
+
+```
+loop forever:
+    # 1. Small reads — all bounded files
+    read config.json, ideas.md, insights.md, results.csv (full)
+    scan experiments/ frontmatters (status fields only)
+
+    # 2. Resumption / reconciliation — idempotent, every iteration
+    for each experiment with job_status: pending:
+        probe job state via env-appropriate skill (ml-research:slurm, etc.)
+        if no job_id yet (mid-dispatch crash before launch):
+            result = dispatch Experimenter(mode: fresh)
+            post_experimenter(result)
+        elif still running:
+            result = dispatch Experimenter(mode: resume-monitoring)
+            post_experimenter(result)
+        elif terminated cleanly:
+            result = dispatch Experimenter(mode: analyze-only)
+            post_experimenter(result)
+        elif terminated abnormally:
+            overwrite experiment file: job_status: crashed, crash_reason in narrative
+            commit on trunk
+            continue
+    # Orphan branches (experiment-named branch, no experiment file): log to
+    # insights.md Open Questions, leave alone — user investigates.
+
+    # 3. Periodic Reviewer
+    if succeeded-count since last Reviewer >= 5:
+        delta = dispatch Reviewer
+        apply delta to insights.md on trunk, commit
+
+    # 4. Idea selection
+    if ideas.md has items:
+        next_idea = pop top item from ideas.md, commit on trunk
+    else:
+        next_idea = dispatch Ideator   # returns one idea with citations
+
+    # 5. New experiment dispatch — stub-first ordering
+    NNN = next experiment ID (auto-increment from experiments/ count)
+    slug = derive_slug(next_idea.title)
+    write experiments/NNN-<slug>.md as a stub (frontmatter only):
+        id: NNN, title, date, theme, sources from next_idea
+        job_status: pending, result_status: null, attempts: 1
+    commit stub on trunk
+    git branch autoresearch/<campaign>/NNN-<slug>   # off trunk HEAD; main agent stays on trunk
+    result = dispatch Experimenter(next_idea, branch, experiment_id=NNN, mode: fresh)
+    post_experimenter(result)
+```
+
+The stub-first ordering ensures that if a crash interrupts the dispatch, step 2 finds the stub and reconciles on the next iteration.
+
+### post_experimenter handler
+
+```
+def post_experimenter(result):
+    # Main agent is on trunk throughout.
+    overwrite experiments/<result.experiment_id>-<slug>.md
+        (frontmatter from result + result.narrative_markdown as body)
+    if result.job_status == "succeeded":
+        append CSV row: result.experiment_id, result.branch, result.commit,
+                        job_id, wandb_url, params, final_train_loss, final_val_loss
+    commit on trunk
+    if result.job_status == "succeeded" and result.result_status == "accepted":
+        git merge --squash <result.branch>
+        commit on trunk ("Merge experiment NNN: <title>")
+    # rejected / inconclusive / crashed: branch preserved, no merge
+    if result.follow_ups:
+        optionally append to ideas.md (use judgment; avoid noise)
+```
+
+### Git choreography
+
+| Actor | Branch | Writes |
+|---|---|---|
+| Main agent | trunk (`autoresearch/<campaign>`) | `ideas.md`, `insights.md`, `results.csv`, `experiments/*.md`, branch merges |
+| Experimenter | experiment branch (`autoresearch/<campaign>/NNN-<slug>`) | code files matching `relevant_files.editable` only; never touches `autoresearch/*` |
+| Ideator | none | no disk writes |
+| Reviewer | none | no disk writes — returns delta; main agent applies |
+
+**Branch lifecycle:**
+
+1. Main agent: `git branch autoresearch/<campaign>/NNN-<slug>` — creates branch ref off trunk HEAD without checking it out.
+2. Main agent dispatches Experimenter with `isolation: "worktree"`. Experimenter gets its own worktree on the branch; main agent's trunk worktree is untouched.
+3. Experimenter commits code changes on its branch. Commits are visible from any worktree.
+4. Experimenter returns. Its worktree is auto-cleaned.
+5. Main agent writes experiment file + CSV row, commits on trunk.
+6. If accepted: `git merge --squash autoresearch/<campaign>/NNN-<slug>` — code change lands on trunk. Branch preserved (audit trail).
+7. If rejected / inconclusive / crashed: no merge; branch preserved.
+
+Every experiment's code is preserved on its branch forever, regardless of outcome.
+
+## Subagent dispatch patterns
+
+### Common dispatch header
+
+Every dispatch prompt begins with:
+
+```
+Campaign: <project_name>
+Trunk: autoresearch/<project_name> @ <git SHA>
+config.json: <embedded JSON, full>
+insights.md: <embedded, full>
+Results CSV: <embedded, full>
+Current best: experiment <id>, final_val_loss <number>
+```
+
+"Current best" = lowest `final_val_loss` among experiments with `job_status: succeeded` and `result_status: accepted`. Compute from `results.csv` before dispatch.
+
+### Subagent types
+
+| Role | `subagent_type` |
+|---|---|
+| Ideator | `ml-research:autoresearch-ideator` |
+| Experimenter | `ml-research:autoresearch-experimenter` |
+| Reviewer | `ml-research:autoresearch-reviewer` |
+
+Always pass `isolation: "worktree"` when dispatching the Experimenter.
+
+### Experimenter-specific dispatch fields
+
+```
+Branch: autoresearch/<campaign>/NNN-<slug>
+Experiment ID: NNN
+Idea: <full idea object — title, theme, rationale, expected, sources, parent?>
+Debug cap: <from config.json>
+Environment hint: <entrypoints.launch_experiment.environment>
+Mode: fresh | resume-monitoring | analyze-only
+```
+
+### Reviewer-specific dispatch fields
+
+```
+Recent experiments (last 5 succeeded): <list of experiment file paths>
+```
+
+The Reviewer reads those files itself; don't pre-embed them.
+
+### Return validation
+
+After each dispatch, validate the return against its contract:
+
+- **Ideator:** `sources` must be non-empty. Reject if `sources: []`.
+- **Experimenter:** must have valid `job_status` (`succeeded`|`crashed`). If `succeeded`, must have `result_status` and `metrics.final_val_loss`.
+- **Reviewer:** delta object must have only valid section names (`Patterns observed`, `Anti-patterns`, `Open questions`, `Closed directions`).
+
+On malformed return: re-dispatch once with the prefix "Your prior return was malformed: <reason>. Please return per the contract." If it fails twice, log to `insights.md` Open Questions and proceed.
+
+## Acceptance criteria
+
+The Experimenter recommends `result_status` based on val loss vs. **current best** (not baseline). Main agent rubber-stamps the recommendation:
+
+| Val-loss delta vs. current best | Recommendation |
+|---|---|
+| improvement > 1% (new < best × 0.99) | `accepted` — if training was stable |
+| 0–1% improvement | `inconclusive` — log; may revisit |
+| no improvement or regression | `rejected` |
+
+Stability gate: even if val loss improves, training must show no divergence, no late-phase oscillation, no NaN/inf. Gate failure → `rejected`.
+
+## Retry policy
+
+Once the Experimenter returns `job_status: crashed` (debug_cap exhausted), that status is sticky. Main agent does **not** auto-retry. The user can manually prompt "retry experiment NNN" to force a fresh Experimenter dispatch on that branch. Otherwise the experiment stays crashed and the Ideator treats it as "tried, didn't work" when avoiding duplicates.
+
+## Autonomy principle
+
+The main agent prompts the user **only** during Phase 0 setup, when the user explicitly addresses the agent, or when a genuinely unresolvable blocker surfaces (e.g., `config.json` references a missing entrypoint). Every crashed job, failed experiment, and exhausted idea queue is handled autonomously — mark, log, move on. A persistent blocker is logged to `insights.md` Open Questions; the agent dispatches a different experiment rather than blocking.
+
+## What the main agent must NOT do
+
+- **Implement code changes** — dispatch Experimenter.
+- **Generate ideas** — dispatch Ideator.
+- **Synthesize insights** — dispatch Reviewer.
+- **Stream `launch_experiment` stdout/stderr into context** — metrics flow only through `read_metrics`, and that runs inside the Experimenter dispatch.
+- **Edit `config.json` after Phase 0** — it is frozen.
+- **Auto-rebase the campaign trunk onto `main`** — that is a human decision.
+- **Read experiment narrative bodies in bulk** — scan frontmatters only; body reads are the subagents' job.
