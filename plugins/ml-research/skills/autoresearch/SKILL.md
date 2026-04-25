@@ -84,7 +84,7 @@ regularization, training_objective, tokenization, schedule
 
 ### Artifact initialization
 
-After the user confirms `config.json`, create (using templates from `${CLAUDE_SKILL_DIR}/templates/` as starting points):
+After the user confirms `config.json`, create (using templates from `${CLAUDE_SKILL_DIR}/templates/` as starting points; if the worktree's `autoresearch/` directory doesn't have templates yet, copy them from `${CLAUDE_SKILL_DIR}/templates/`):
 
 ```
 autoresearch/config.json              # written from dialog
@@ -147,10 +147,14 @@ loop forever:
     if ideas.md has items:
         next_idea = pop top item from ideas.md, commit on trunk
     else:
-        next_idea = dispatch Ideator   # returns one idea with citations
+        next_idea = dispatch Ideator   # always returns one idea (uses a low-confidence flag in rationale if stuck); the loop never blocks on idea exhaustion
 
     # 5. New experiment dispatch — stub-first ordering
-    NNN = next experiment ID (auto-increment from experiments/ count)
+    # NNN = highest existing experiment ID in experiments/*.md (parse from filename
+    # prefix NNN-) + 1, zero-padded to 3 digits. If experiments/ is empty, NNN = 001.
+    NNN = next experiment ID
+    # Slug rule: lowercase the title; replace non-alphanumeric chars with `-`;
+    # collapse consecutive `-`s; trim leading/trailing `-`; truncate to 40 chars max.
     slug = derive_slug(next_idea.title)
     write experiments/NNN-<slug>.md as a stub (frontmatter only):
         id: NNN, title, date, theme, sources from next_idea
@@ -218,7 +222,7 @@ Results CSV: <embedded, full>
 Current best: experiment <id>, final_val_loss <number>
 ```
 
-"Current best" = lowest `final_val_loss` among experiments with `job_status: succeeded` and `result_status: accepted`. Compute from `results.csv` before dispatch.
+"Current best" = lowest `final_val_loss` among experiments with `job_status: succeeded` and `result_status: accepted`. Compute from `results.csv` before dispatch. If no experiment has `result_status: accepted`, current best = the baseline (experiment 001) by definition.
 
 ### Subagent types
 
@@ -249,13 +253,67 @@ Recent experiments (last 5 succeeded): <list of experiment file paths>
 
 The Reviewer reads those files itself; don't pre-embed them.
 
+### Concrete dispatch example (Ideator)
+
+Below is a complete Ideator dispatch prompt for a campaign called `lm-finetune` at its third iteration. Content blocks show the actual embedded format — not abstract placeholders.
+
+```
+Campaign: lm-finetune
+Trunk: autoresearch/lm-finetune @ a3f8c21
+config.json:
+{
+  "project_name": "lm-finetune",
+  "training_objective": "minimize validation cross-entropy on held-out split",
+  "experiment_budget": {"max_steps": 2000},
+  "relevant_files": {
+    "editable": ["src/model.py", "src/train.py"],
+    "read_only": ["configs/base.yaml", "data/"]
+  },
+  "entrypoints": {
+    "count_params": "python scripts/count_params.py",
+    "launch_experiment": "bash scripts/launch.sh",
+    "read_metrics": "python scripts/read_metrics.py"
+  },
+  "constraints": [
+    "no change to random seed, validation dataset, validation logic, or validation metrics",
+    "no change to the experiment budget defined in config.json",
+    "parameter count must be <= baseline * 1.05",
+    "no change to core dependencies / package versions"
+  ],
+  "theme_priorities": {"high": ["training_objective", "optimizer"], "medium": ["regularization"], "low": ["architecture"]},
+  "prior_findings": ["label smoothing 0.1 hurt val loss by 0.03", "AdamW lr=3e-4 diverged at step 800"],
+  "debug_cap": 3
+}
+insights.md:
+## Patterns observed
+- Warmup of 200 steps stabilizes early training across all accepted runs.
+
+## Anti-patterns
+- Learning rates above 1e-3 cause late-phase oscillation.
+
+## Open questions
+- Would cosine-with-restarts outperform linear decay?
+
+## Closed directions
+- (none yet)
+Results CSV:
+experiment_id,branch,commit,job_id,wandb_url,params,final_train_loss,final_val_loss
+001,autoresearch/lm-finetune/001-baseline,a3f8c21,,,7421332,,2.847
+002,autoresearch/lm-finetune/002-focal-loss,b19d043,,,7421332,,2.801
+Current best: experiment 002, final_val_loss 2.801
+
+--- IDEATOR TASK ---
+Propose one new experiment idea. Return a single idea object with fields:
+title, theme, rationale, expected, sources (non-empty list of citation keys or URLs).
+```
+
 ### Return validation
 
 After each dispatch, validate the return against its contract:
 
 - **Ideator:** `sources` must be non-empty. Reject if `sources: []`.
 - **Experimenter:** must have valid `job_status` (`succeeded`|`crashed`). If `succeeded`, must have `result_status` and `metrics.final_val_loss`.
-- **Reviewer:** delta object must have only valid section names (`Patterns observed`, `Anti-patterns`, `Open questions`, `Closed directions`).
+- **Reviewer:** the return must be an object with optional keys `insights_added`, `insights_updated`, `insights_removed`, `strategic_note`. The first three are arrays of `{section, text}` (for added/removed) or `{section, old_text, new_text}` (for updated) objects. `section` must be one of: `Patterns observed`, `Anti-patterns`, `Open questions`, `Closed directions`. `strategic_note` is an optional string.
 
 On malformed return: re-dispatch once with the prefix "Your prior return was malformed: <reason>. Please return per the contract." If it fails twice, log to `insights.md` Open Questions and proceed.
 
