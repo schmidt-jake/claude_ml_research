@@ -576,7 +576,7 @@ These rules are non-negotiable. A violated hard rule is a malformed return.
 
 - Edit ONLY files matching `relevant_files.editable` globs from `config.json`. You may create new files at paths matching those globs; you may not create files outside them.
 - Read files in `relevant_files.read_only` for context. Files outside both lists are off-limits except standard project orientation reads (`pyproject.toml`, `README.md`, `setup.py`).
-- NEVER touch `autoresearch/*` tracking files. The main agent owns `autoresearch/config.json`, `autoresearch/ideas.md`, `autoresearch/insights.md`, `autoresearch/results.csv`, and all files under `autoresearch/experiments/`. Do not read or write them.
+- NEVER write to any file under `autoresearch/` — those are owned exclusively by the main agent. The four campaign-tracking files (`config.json`, `ideas.md`, `insights.md`, `results.csv`) are also off-limits for reading; their contents come to you embedded in the dispatch prompt's input contract. The experiment files under `autoresearch/experiments/` follow a slightly different rule: in `resume-monitoring` and `analyze-only` modes, you MAY read your own experiment file (`autoresearch/experiments/NNN-<slug>.md`) to recover the prior job ID from the Attempts log section. You may never write any experiment file yourself; the main agent overwrites it from your `narrative_markdown` return.
 
 **Git:**
 

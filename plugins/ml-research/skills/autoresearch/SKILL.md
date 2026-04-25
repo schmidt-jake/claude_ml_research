@@ -176,7 +176,7 @@ def post_experimenter(result):
         (frontmatter from result + result.narrative_markdown as body)
     if result.job_status == "succeeded":
         append CSV row: result.experiment_id, result.branch, result.commit,
-                        job_id, wandb_url, params, final_train_loss, final_val_loss
+                        job_id, wandb_url, trainable_params, total_params, final_train_loss, final_val_loss
     commit on trunk
     if result.job_status == "succeeded" and result.result_status == "accepted":
         git merge --squash <result.branch>
@@ -263,16 +263,15 @@ Trunk: autoresearch/lm-finetune @ a3f8c21
 config.json:
 {
   "project_name": "lm-finetune",
-  "training_objective": "minimize validation cross-entropy on held-out split",
   "experiment_budget": {"max_steps": 2000},
   "relevant_files": {
     "editable": ["src/model.py", "src/train.py"],
     "read_only": ["configs/base.yaml", "data/"]
   },
   "entrypoints": {
-    "count_params": "python scripts/count_params.py",
-    "launch_experiment": "bash scripts/launch.sh",
-    "read_metrics": "python scripts/read_metrics.py"
+    "count_params": { "command": "uv run python scripts/count_params.py" },
+    "launch_experiment": { "command": "scripts/launch.sh", "environment": "slurm" },
+    "read_metrics": { "command": "scripts/read_metrics.sh" }
   },
   "constraints": [
     "no change to random seed, validation dataset, validation logic, or validation metrics",
@@ -297,10 +296,17 @@ insights.md:
 ## Closed directions
 - (none yet)
 Results CSV:
-experiment_id,branch,commit,job_id,wandb_url,params,final_train_loss,final_val_loss
-001,autoresearch/lm-finetune/001-baseline,a3f8c21,,,7421332,,2.847
-002,autoresearch/lm-finetune/002-focal-loss,b19d043,,,7421332,,2.801
+experiment_id,branch,commit,job_id,wandb_url,trainable_params,total_params,final_train_loss,final_val_loss
+001,autoresearch/lm-finetune/001-baseline,a3f8c21,,,7421332,7421332,,2.847
+002,autoresearch/lm-finetune/002-focal-loss,b19d043,,,7421332,7421332,,2.801
 Current best: experiment 002, final_val_loss 2.801
+
+ideas.md content:
+(empty)
+
+Experiment frontmatter summary:
+- 001 | baseline (no change) | training_objective | succeeded | accepted
+- 002 | focal loss alpha=0.25 | training_objective | succeeded | rejected
 
 --- IDEATOR TASK ---
 Propose one new experiment idea. Return a single idea object with fields:
@@ -313,7 +319,7 @@ After each dispatch, validate the return against its contract:
 
 - **Ideator:** `sources` must be non-empty. Reject if `sources: []`.
 - **Experimenter:** must have valid `job_status` (`succeeded`|`crashed`). If `succeeded`, must have `result_status` and `metrics.final_val_loss`.
-- **Reviewer:** the return must be an object with optional keys `insights_added`, `insights_updated`, `insights_removed`, `strategic_note`. The first three are arrays of `{section, text}` (for added/removed) or `{section, old_text, new_text}` (for updated) objects. `section` must be one of: `Patterns observed`, `Anti-patterns`, `Open questions`, `Closed directions`. `strategic_note` is an optional string.
+- **Reviewer:** the return must be an object with required arrays `insights_added`, `insights_updated`, `insights_removed` (may be empty) and optional `strategic_note`. The first three are arrays of `{section, text}` (for added/removed) or `{section, old_text, new_text}` (for updated) objects. `section` must be one of: `Patterns observed`, `Anti-patterns`, `Open questions`, `Closed directions`. `strategic_note` is an optional string.
 
 On malformed return: re-dispatch once with the prefix "Your prior return was malformed: <reason>. Please return per the contract." If it fails twice, log to `insights.md` Open Questions and proceed.
 
