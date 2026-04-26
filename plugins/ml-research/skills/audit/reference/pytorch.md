@@ -46,10 +46,10 @@ TORCH_TRACE=/tmp/trace python script.py && tlparse /tmp/trace
 **Anti-patterns to grep for:**
 
 - `F.softmax(x, ...)`, `torch.exp(x)`, `torch.log(x)`, `(-x).exp()` where `x` is a logit tensor in fp16/bf16 without an explicit `x.float()` upcast.
-- `tensor.sum()` / `tensor.mean()` / `tensor.var()` over very large tensors (e.g., loss reduction over a long sequence) where the tensor is fp16. fp16 sums overflow (8-bit exponent absent, 5 mantissa bits); bf16 sums don't overflow but lose precision (8-bit exponent, only 7 mantissa bits) for large reductions. Upcast the accumulator to fp32 (`x.float().sum()`) for both.
+- `tensor.sum()` / `tensor.mean()` / `tensor.var()` over very large tensors (e.g., loss reduction over a long sequence) where the tensor is fp16. fp16 sums overflow (5-bit exponent saturates at ~65504, 10 mantissa bits); bf16 sums don't overflow but lose precision (8-bit exponent, only 7 mantissa bits) for large reductions. Upcast the accumulator to fp32 (`x.float().sum()`) for both.
 - `eps=1e-8` (or smaller) in normalization layers (`LayerNorm`, `BatchNorm`, `RMSNorm`) when running in fp16 — `1e-8` is below fp16's smallest normal (`6e-5`).
 - `(1 - x)` for very small `x` in fp16 — catastrophic cancellation; use log-space or upcast.
-- Training in fp32 (or running fp32 fallback paths under autocast) without enabling TF32 — on Ampere+ you leave matmul throughput on the table. Use `torch.set_float32_matmul_precision('high')` (PyTorch ≥ 2.0) or, on PyTorch ≥ 2.9, the successor `torch.backends.fp32_precision = "tf32"`. (TF32 only affects fp32 ops; it is a no-op for bf16/fp16 matmuls.)
+- Training in fp32 (or running fp32 fallback paths under autocast) without enabling TF32 — on Ampere+ you leave matmul throughput on the table. Use `torch.set_float32_matmul_precision('high')` (PyTorch ≥ 2.0) or, on PyTorch ≥ 2.9, the successor `torch.backends.cuda.matmul.fp32_precision = "tf32"`. (TF32 only affects fp32 ops; it is a no-op for bf16/fp16 matmuls.)
 - Using `torch.cuda.amp.GradScaler` when training is bf16 — `GradScaler` is fp16-only and is a no-op (and deprecated) under bf16.
 
 **Citations:**
