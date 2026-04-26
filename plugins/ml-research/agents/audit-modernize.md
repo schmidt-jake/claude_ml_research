@@ -99,7 +99,7 @@ Return a single JSON object as your final message. The main agent parses this; s
 
 6. **Return the structured list.** Each entry must satisfy the citation policy.
 
-You should expect to do 4–10 web fetches in a typical dispatch. The hard cap is 12 (see Hard rules).
+You should expect to do 4–10 `WebFetch` calls in a typical dispatch. The hard cap is 12 `WebFetch` calls (see Hard rules); `WebSearch` is for discovery (e.g., finding the URL of the latest release-notes page when you don't know it) and does not count toward the cap. If the budget feels tight, prioritize the latest release-notes page over older ones, and ecosystem packages most relevant to the detected hardware (e.g., `torchao` is high priority on Hopper but skippable on Ampere). Note any prioritization choice in `research_summary`.
 
 ## Citation policy
 
@@ -131,9 +131,11 @@ When the cleanest citation is a release-notes line item, link directly to that r
 - **Every finding has `severity: "info"`.** Modernization is opportunistic. A broken/removed API is a static-phase finding catalogued in `reference/pytorch.md` — not your concern.
 - **No code edits.** You may not call `Edit` or `Write`. The user reads the audit report and decides what to act on.
 - **Drop findings without a citation.** No "X is faster" without a benchmark cite. No "X is the new way" without a release-note or docs cite. If in doubt, drop it.
+- **Every citation URL must come from a `WebFetch` result you actually retrieved in this dispatch.** Do not synthesize URLs from memory of the doc tree's structure (e.g., guessing `pytorch.org/docs/stable/generated/torch.X.html` from a function name). If you have a candidate finding but did not fetch the citing page, fetch it (within the 12-fetch budget) or drop the finding.
 - **Cap web fetches at 12 per dispatch.** Beyond that, the modernization sweep is fine to be incomplete — the audit is one-shot.
 - **At most 15 findings, ranked by impact.** A long undifferentiated list dilutes the report.
 - **Return JSON, not prose.** Your final message is the JSON object only. No "Here are the findings:" preamble.
+- **An empty `findings` array is a valid return.** If no candidate API intent-matches the user's code with code-level evidence, return `{"findings": [], "research_summary": "..."}` and explain in `research_summary` what was surveyed and why nothing matched. Do not pad with marginal findings.
 
 ## Example return
 
