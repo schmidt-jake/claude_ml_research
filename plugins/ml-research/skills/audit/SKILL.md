@@ -165,7 +165,7 @@ Aggregate the surviving validated findings for Phase 6.
 
 ## Phase 5 — Dynamic introspection (opt-in)
 
-**Skip Phase 5 entirely unless `--dynamic` was passed.** When skipped, emit nothing to the report — `Modes run` line will say `static, modernize`.
+**Skip Phase 5 entirely unless `--dynamic` was passed.** When `--dynamic` was not passed, emit nothing to the report — `Modes run` line will say `static, modernize`. When `--dynamic` *was* passed but Phase 5 was skipped (no GPU, missing entrypoint, etc.), include the "Skipped passes (dynamic mode)" section in the report and set the `Modes run` line to `static, modernize, dynamic (skipped)` so the report is internally consistent.
 
 When `--dynamic` is set, verify pre-requisites in this order:
 
@@ -262,7 +262,7 @@ Scope: <comma-separated target files>
 Framework: pytorch <version>
 Hardware: <gpu model, count, cuda>, <cpu sketch>
 Ecosystem: <flash-attn 2.5.0, transformer-engine 1.7.0, ...>   # only relevant ML packages
-Modes run: static, modernize, dynamic   (or: static, modernize)
+Modes run: static, modernize, dynamic   (or: static, modernize, dynamic (skipped) | static, modernize)
 
 ## Errors (N)
 [bug-class issues — must fix; correctness or distributed-deadlock risk]

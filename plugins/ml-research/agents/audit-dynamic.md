@@ -79,6 +79,30 @@ Return a single JSON object as your final message.
 - `findings` — array of finding objects. `category` is one of `compile`, `numerical`, `autograd`, `distributed`, `perf` — the same five used by the static phase. If a finding doesn't fit one of these (e.g., a profiler-only observation), choose the closest one — `perf` is the catch-all for runtime/observability findings — do not introduce new categories like `profile` or `memory`. `severity` is one of `error`, `warning`, `info` per the static-phase definitions. Same shape as static findings but with an additional `evidence_path` field pointing into `/tmp/audit-dynamic-<pid>/`.
 - `summary_metrics` — object with quantitative summaries the report surfaces in the "Run summary" line. Keys: `graph_breaks`, `recompiles`, `peak_gpu_mem_mb`, `host_device_syncs_per_step`. Omit a key if the relevant pass was skipped.
 
+## Harness scaffolding
+
+Before running any pass, construct `(model, example_inputs)` once from the dispatch's `Introspection entrypoint`:
+
+- For `type: function` with `value: <module>:<fn>`, dynamically import the function and call it:
+
+```python
+import importlib
+mod_name, fn_name = "<module>:<fn>".split(":")
+build_fn = getattr(importlib.import_module(mod_name), fn_name)
+model, example_inputs = build_fn()
+```
+
+- For `type: script` with `value: <path>`, load it via `runpy` and pull the same names from its module namespace (the script must define `model` and `example_inputs` at module level, or call the same `build_*` convention):
+
+```python
+import runpy
+ns = runpy.run_path("<path>")
+model = ns["model"] if "model" in ns else ns["build_for_introspection"]()[0]
+example_inputs = ns["example_inputs"] if "example_inputs" in ns else ns["build_for_introspection"]()[1]
+```
+
+The pass blocks below reference `model` and `example_inputs` (or `inputs`) generically — do **not** assume the entrypoint function is named `build_for_introspection`.
+
 ## Pass list
 
 Each pass below is a candidate. Conditional skip rules in the next section say when to drop a pass. The runbook commands come from `plugins/ml-research/skills/audit/reference/pytorch.md` "Introspection runbooks" — that is the source of truth for invocation; this section repeats them for convenience and adds parsing logic.
@@ -89,7 +113,7 @@ Wrap the model construction in a small harness:
 
 ```python
 import torch
-model, inputs = build_for_introspection()  # or wrap script entrypoint
+# `(model, example_inputs)` already prepared (see Harness scaffolding)
 explanation = torch._dynamo.explain(model)(*inputs)
 print(explanation)
 ```
@@ -210,7 +234,7 @@ The static-phase findings tell you what's actually present in the user's code. S
 
 - **Each pass runs in its own subprocess wrapped in `timeout 90s`.** Spawn from your top-level `Bash` tool calls — `bash -c 'timeout 90s python harness_<pass>.py'` is correct. **Do not** spawn child processes from inside a parent Python that has already imported `torch`: CUDA's no-fork policy means the child inherits a poisoned context and the pass will fail unrelated to its own logic. Always go `Bash → bash -c → timeout → python`. A timed-out pass is added to `passes_skipped` with the reason `"timed out (90s)"`. Never block another pass.
 - **Total wall-clock cap: 5 minutes.** If you've consumed 4 minutes of wall time and have remaining passes, emit them as `passes_skipped: {"<pass>": "wall-clock budget exhausted"}` and return.
-- **All artifacts under `/tmp/audit-dynamic-<pid>/`.** Create the directory at the start. Filenames: `harness.py`, `dynamo_explain.txt`, `compile_logs.txt`, `trace/`, `tlparse-out/` (directory; entry `index.html`), `anomaly.txt`, `profiler.json`, `memory.pickle`, `flop_counter.txt`. Reference these paths in `evidence_path` fields.
+- **All artifacts under `/tmp/audit-dynamic-<pid>/`.** Create the directory at the start. Filenames: `harness_<pass>.py`, `dynamo_explain.txt`, `compile_logs.txt`, `trace/`, `tlparse-out/` (directory; entry `index.html`), `anomaly.txt`, `profiler.json`, `memory.pickle`, `flop_counter.txt`. Reference these paths in `evidence_path` fields.
 - **Truncate or summarize trace files >100 MB.** A `TORCH_TRACE` directory or a `profiler.json` over 100 MB is too big for the user to inspect comfortably; replace it with a summary text file and note "truncated; original was N MB" in the corresponding finding's `why`.
 - **No edits to user code.** Read-only. Your harness file lives under `/tmp/audit-dynamic-<pid>/`. If the dispatch's `Introspection entrypoint` is `type: script` and points to a `scripts/audit_introspection.py` stub the main agent created, you may *fill in inferred shapes/dtypes only when explicitly told to in the dispatch prompt* — otherwise treat scripts as read-only.
 - **Citation per finding.** Use the runbook's citation as the default; if a parsed output points at a more specific doc URL, prefer that.
