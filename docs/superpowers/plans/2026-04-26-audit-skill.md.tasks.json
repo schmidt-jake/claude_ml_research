@@ -1,0 +1,47 @@
+{
+  "planPath": "docs/superpowers/plans/2026-04-26-audit-skill.md",
+  "tasks": [
+    {
+      "id": 9,
+      "subject": "Task 0: Scaffold directories and update marketplace metadata",
+      "status": "pending",
+      "description": "**Goal:** Create `plugins/ml-research/skills/audit/{,reference/}`, update `plugin.json`, `marketplace.json`, and `README.md` to announce the new `audit` skill.\n\n**Files:**\n- Create dir: `plugins/ml-research/skills/audit/reference/`\n- Modify: `plugins/ml-research/.claude-plugin/plugin.json`\n- Modify: `.claude-plugin/marketplace.json`\n- Modify: `README.md`\n\n```json:metadata\n{\"files\": [\"plugins/ml-research/skills/audit/reference/\", \"plugins/ml-research/.claude-plugin/plugin.json\", \".claude-plugin/marketplace.json\", \"README.md\"], \"verifyCommand\": \"test -d plugins/ml-research/skills/audit/reference/ && grep -q '\\\"audit\\\"' plugins/ml-research/.claude-plugin/plugin.json && grep -q '\\\"audit\\\"' .claude-plugin/marketplace.json && grep -q '\\\\*\\\\*`audit`\\\\*\\\\*' README.md && claude plugin validate plugins/ml-research && echo OK\", \"acceptanceCriteria\": [\"audit/reference dir exists\", \"plugin.json includes audit\", \"marketplace.json includes audit\", \"README lists audit skill\", \"plugin validate passes\"], \"planTaskNumber\": 0}\n```"
+    },
+    {
+      "id": 10,
+      "subject": "Task 1: Author reference/pytorch.md",
+      "status": "pending",
+      "blockedBy": [9],
+      "description": "**Goal:** Write the per-framework anti-pattern + introspection-runbook reference. Five categories (compile/numerical/autograd/distributed/perf), each with Symptoms/Anti-patterns/Citations. Modernization seeds (≥5 entries with citations). Introspection runbooks table with all seven dynamic passes.\n\n**Files:**\n- Create: `plugins/ml-research/skills/audit/reference/pytorch.md`\n\n```json:metadata\n{\"files\": [\"plugins/ml-research/skills/audit/reference/pytorch.md\"], \"verifyCommand\": \"F=plugins/ml-research/skills/audit/reference/pytorch.md; test -f $F && grep -c '^## [1-5]\\\\.' $F | grep -q '^5$' && grep -q '^## Modernization seeds' $F && grep -q '^## Introspection runbooks' $F && for p in dynamo_explain compile_logs trace_tlparse anomaly profiler memory flop_counter; do grep -q $p $F || exit 1; done && ! grep -E '\\\\b(TBD|TODO|FIXME|XXX)\\\\b' $F && echo OK\", \"acceptanceCriteria\": [\"five categories\", \"each category has citation\", \"modernization seeds section\", \"introspection runbooks lists all 7 passes\", \"no placeholders\"], \"planTaskNumber\": 1}\n```"
+    },
+    {
+      "id": 11,
+      "subject": "Task 2: Author audit-modernize agent",
+      "status": "pending",
+      "blockedBy": [9],
+      "description": "**Goal:** Create the modernize subagent definition: live web research against PyTorch release notes/blog/GitHub, intent-match against target files, return ≤15 info-severity findings each with mandatory citation.\n\n**Files:**\n- Create: `plugins/ml-research/agents/audit-modernize.md`\n\n```json:metadata\n{\"files\": [\"plugins/ml-research/agents/audit-modernize.md\"], \"verifyCommand\": \"python3 -c 'import yaml; c=open(\\\"plugins/ml-research/agents/audit-modernize.md\\\").read(); p=c.split(\\\"---\\\",2); fm=yaml.safe_load(p[1]); assert fm[\\\"name\\\"]==\\\"audit-modernize\\\"; assert fm[\\\"model\\\"]==\\\"opus\\\"; assert {\\\"WebSearch\\\",\\\"WebFetch\\\",\\\"Read\\\",\\\"Grep\\\",\\\"Bash\\\"}.issubset(set(fm.get(\\\"tools\\\",[]))); assert {\\\"Edit\\\",\\\"Write\\\"}.issubset(set(fm.get(\\\"disallowedTools\\\",[]))); b=p[2].lower(); [b.index(s) for s in (\\\"identity\\\",\\\"input contract\\\",\\\"output contract\\\",\\\"subagent loop\\\",\\\"citation policy\\\",\\\"hard rules\\\",\\\"example return\\\")]; print(\\\"OK\\\")'\", \"acceptanceCriteria\": [\"frontmatter correct (opus, WebSearch+WebFetch tools, Edit/Write disallowed)\", \"all required sections present\", \"hard rules enforce severity=info, ≤15 findings, ≤12 fetches\"], \"planTaskNumber\": 2}\n```"
+    },
+    {
+      "id": 12,
+      "subject": "Task 3: Author audit-dynamic agent",
+      "status": "pending",
+      "blockedBy": [9],
+      "description": "**Goal:** Create the dynamic-introspection subagent definition: scaffold a Python harness in `/tmp/audit-dynamic-<pid>/`, run seven introspection passes (each subprocess-isolated with `timeout 90s`), parse outputs, return structured digest.\n\n**Files:**\n- Create: `plugins/ml-research/agents/audit-dynamic.md`\n\n```json:metadata\n{\"files\": [\"plugins/ml-research/agents/audit-dynamic.md\"], \"verifyCommand\": \"python3 -c 'import yaml; c=open(\\\"plugins/ml-research/agents/audit-dynamic.md\\\").read(); p=c.split(\\\"---\\\",2); fm=yaml.safe_load(p[1]); assert fm[\\\"name\\\"]==\\\"audit-dynamic\\\"; assert fm[\\\"model\\\"]==\\\"sonnet\\\"; assert {\\\"Bash\\\",\\\"Read\\\",\\\"Edit\\\",\\\"Write\\\",\\\"Grep\\\"}.issubset(set(fm.get(\\\"tools\\\",[]))); b=p[2].lower(); [b.index(s) for s in (\\\"identity\\\",\\\"input contract\\\",\\\"output contract\\\",\\\"pass list\\\",\\\"conditional skip\\\",\\\"hard rules\\\",\\\"example return\\\")]; [b.index(p2) for p2 in (\\\"dynamo_explain\\\",\\\"compile_logs\\\",\\\"trace_tlparse\\\",\\\"anomaly\\\",\\\"profiler\\\",\\\"memory\\\",\\\"flop_counter\\\")]; print(\\\"OK\\\")'\", \"acceptanceCriteria\": [\"frontmatter correct (sonnet, harness writes need Edit/Write)\", \"all required sections present\", \"all seven passes mentioned\", \"hard rules cap timeouts and wall-clock\"], \"planTaskNumber\": 3}\n```"
+    },
+    {
+      "id": 13,
+      "subject": "Task 4: Author audit SKILL.md",
+      "status": "pending",
+      "blockedBy": [10, 11, 12],
+      "description": "**Goal:** Create the main skill file orchestrating the six phases inline (target resolution, environment probe, static audit, modernize dispatch, optional dynamic dispatch, report assembly).\n\n**Files:**\n- Create: `plugins/ml-research/skills/audit/SKILL.md`\n\n```json:metadata\n{\"files\": [\"plugins/ml-research/skills/audit/SKILL.md\"], \"verifyCommand\": \"python3 -c 'import yaml; c=open(\\\"plugins/ml-research/skills/audit/SKILL.md\\\").read(); p=c.split(\\\"---\\\",2); fm=yaml.safe_load(p[1]); assert fm[\\\"name\\\"]==\\\"audit\\\"; d=fm[\\\"description\\\"]; [d.lower().index(s.lower()) if s in (\\\"lint\\\",\\\"review my model\\\") else d.index(s) for s in (\\\"audit\\\",\\\"pytorch\\\",\\\"torch._dynamo.explain\\\",\\\"TORCH_TRACE\\\",\\\"tlparse\\\",\\\"--dynamic\\\",\\\"lint\\\",\\\"review my model\\\")]; assert len(d.encode())<2048; b=p[2]; [b.index(h) for h in (\\\"## Phase 1\\\",\\\"## Phase 2\\\",\\\"## Phase 3\\\",\\\"## Phase 4\\\",\\\"## Phase 5\\\",\\\"## Phase 6\\\",\\\"## Citation policy\\\",\\\"## Composition with other skills\\\",\\\"## Out of scope\\\")]; [b.index(s) for s in (\\\"slurm\\\",\\\"model-training\\\",\\\"autoresearch\\\")]; print(\\\"OK\\\")'\", \"acceptanceCriteria\": [\"frontmatter description has all trigger keywords and ≤2KB\", \"all six phase headings present\", \"citation policy and composition sections present\", \"composition mentions all three sibling skills\"], \"planTaskNumber\": 4}\n```"
+    },
+    {
+      "id": 14,
+      "subject": "Task 5: Final integration check",
+      "status": "pending",
+      "blockedBy": [13],
+      "description": "**Goal:** Validate the whole repo and the plugin dir; smoke-check that SKILL, agents, and reference cross-reference correctly.\n\n**Files:** none modified.\n\n```json:metadata\n{\"files\": [], \"verifyCommand\": \"claude plugin validate . && claude plugin validate plugins/ml-research && F=plugins/ml-research/skills/audit/SKILL.md && grep -q 'reference/pytorch\\\\.md' $F && grep -q 'ml-research:audit-modernize' $F && grep -q 'ml-research:audit-dynamic' $F && echo OK\", \"acceptanceCriteria\": [\"plugin validate passes for repo and plugin\", \"SKILL cross-references reference and both agents\", \"all four new files exist\"], \"planTaskNumber\": 5}\n```"
+    }
+  ],
+  "lastUpdated": "2026-04-26"
+}
