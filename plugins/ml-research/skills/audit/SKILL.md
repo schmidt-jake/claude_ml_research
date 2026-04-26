@@ -119,7 +119,7 @@ Emit findings of the form:
 
 `citation` is required. For static-phase findings, the citation comes from the entry's row in `reference/pytorch.md` (which itself must point to an upstream source). Findings whose reference entry has no citation are dropped silently.
 
-**Detection technique.** Use `grep` with the patterns *already inline* in `reference/pytorch.md` — the bullets that read like regex syntax (e.g., `\.item\(\)`, `\.tolist\(\)`). Do **not** synthesize new regexes from prose-only bullets (e.g., "data-dependent control flow on tensor values"). Prose bullets describe failure modes that need an LLM read of the code or — better — a Phase 5 dynamic introspection pass; trying to grep them produces noisy false positives. If a prose bullet has no inline regex, drop it from the static phase and rely on Phase 5 to catch it. Pattern-match conservatively: if a candidate is ambiguous (e.g., `.item()` *might* be inside a compiled region but you can't tell from grep alone), prefer false positives over false negatives at static phase — Phase 5 dynamic introspection (when run) will confirm or contradict. Note ambiguity in `why`.
+**Detection technique.** Use `grep` with the patterns *already inline* in `reference/pytorch.md` — the bullets that read like regex syntax (e.g., `\.item\(\)`, `\.tolist\(\)`). Do **not** synthesize new regexes from prose-only bullets (e.g., "data-dependent control flow on tensor values"). Prose bullets describe failure modes that need an LLM read of the code or — better — a Phase 5 dynamic introspection pass; trying to grep them produces noisy false positives. If a prose bullet has no inline regex, drop it from the static phase and rely on Phase 5 to catch it (when `--dynamic` is set). When the user runs without `--dynamic`, prose-only categories are not detected this pass — note this in the report's "Run summary" so the user knows. Pattern-match conservatively: if a candidate is ambiguous (e.g., `.item()` *might* be inside a compiled region but you can't tell from grep alone), prefer false positives over false negatives at static phase — Phase 5 dynamic introspection (when run) will confirm or contradict. Note ambiguity in `why`.
 
 **Hot-path heuristic.** Some categories (perf, distributed) only matter inside the training loop's hot path. Treat any function with `loss.backward()` or `Trainer.fit` reachable from it as hot path. Ops in `__init__`, top-level module construction, or test files are not hot path — drop perf/distributed findings on those.
 
@@ -151,7 +151,7 @@ Embed full file content (not just paths) — the subagent can't see your filesys
 
 **Validate the return.** The subagent returns JSON with `findings: [...]` and `research_summary: "..."`. Apply checks in two tiers:
 
-*Shape checks* (failure → retry once with the prefix `"Your prior return was malformed: <reason>. Please return per the contract."`; on second failure, drop the modernize phase and log to "Skipped passes":
+*Shape checks* (failure → retry once with the prefix `"Your prior return was malformed: <reason>. Please return per the contract."`; on second failure, drop the modernize phase and log to "Skipped passes"):
 - top-level object parses as JSON
 - `findings` is a list (possibly empty)
 - `research_summary` is a non-empty string
@@ -195,29 +195,11 @@ ls scripts/audit_introspection.py 2>/dev/null
 ls tests/test_*forward*.py 2>/dev/null
 ```
 
-If found, propose to the user. If confirmed, encode as the entrypoint dict.
+When `ls scripts/audit_introspection.py` matches, **read its first line** before proposing it. If the first line equals the canonical stub docstring `"""Audit introspection entrypoint. Fill in tensor shapes and dtypes."""`, the user previously accepted a scaffold but has not filled it in — do not propose it as an entrypoint. Print a reminder ("`scripts/audit_introspection.py` exists but still has unfilled `# TODO:` markers — edit it, then re-run with `--dynamic`.") and stop Phase 5 here.
 
-**Before scaffolding, check whether the file already exists.** If `scripts/audit_introspection.py` is present and has been hand-edited (not just the stub template; check whether the file's first line matches the canonical stub docstring `"""Audit introspection entrypoint. Fill in tensor shapes and dtypes."""`), prefer using it as-is — do not overwrite. Propose it to the user as the entrypoint. If the file exists but matches the stub template verbatim, the user has not yet filled in shapes/dtypes — print a reminder and stop Phase 5 here.
+When the heuristic finds a function-path entrypoint or `audit_introspection.py` that has been hand-edited (first line ≠ the canonical stub docstring), propose it; if confirmed, encode as the entrypoint dict and proceed to dispatch.
 
-If none found, offer to scaffold `scripts/audit_introspection.py`. Generate the stub from the user's model construction code (look for the `nn.Module` subclass definition and its `__init__`). The stub:
-
-```python
-"""Audit introspection entrypoint. Fill in tensor shapes and dtypes."""
-import torch
-from <user's module> import <user's Model>
-
-
-def build_for_introspection():
-    # TODO: replace with the constructor args matching your config
-    model = <user's Model>(...).cuda().eval()
-    # TODO: replace with realistic example shapes/dtypes for your model
-    example_inputs = (
-        torch.randn(2, 3, 224, 224, device="cuda"),
-    )
-    return model, example_inputs
-```
-
-Write the stub, tell the user it has TODOs to fill in, and stop Phase 5 here. The user can re-run `/ml-research:audit --dynamic` after editing.
+If nothing is found, the main agent offers to scaffold `scripts/audit_introspection.py` from the user's model construction code, with `# TODO:` markers where the user fills in tensor shapes/dtypes. The user can run audit again with `--dynamic` after editing.
 
 **(3) Dispatch `audit-dynamic`:**
 
