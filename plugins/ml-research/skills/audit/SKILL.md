@@ -1,6 +1,6 @@
 ---
 name: audit
-description: Audit a PyTorch codebase for trace/compile issues, numerical instability under reduced precision, gradient/autograd bugs, distributed pitfalls, and inefficient patterns. Surveys recent framework releases (live web research) for modernization opportunities. Optional --dynamic mode runs torch._dynamo.explain, TORCH_TRACE+tlparse, autograd anomaly mode, profiler, memory snapshot, and FLOP counter on a single forward/backward. Use when the user says "audit", "lint", "review my model code for ML bugs", "what could go wrong here", or before launching a long training run. Composes with the slurm skill for cluster hardware identification; complements but does not replace model-training (which validates the loop end-to-end by running it).
+description: Audit a PyTorch codebase for trace/compile, numerical, autograd, distributed, and perf anti-patterns; surveys recent framework releases for modernization opportunities. Optional --dynamic mode runs framework introspection (torch._dynamo.explain, TORCH_TRACE+tlparse, autograd anomaly mode, profiler, memory snapshot, FLOP counter) on a single forward/backward. Use when the user says "audit", "lint", "review my model code for ML bugs", or before launching a long training run. Composes with slurm for cluster identification; complements (does not replace) model-training.
 ---
 
 # Audit
@@ -32,7 +32,7 @@ If no args, propose a target list using these heuristics on the current working 
 Detect concretely:
 
 ```bash
-grep -rl --include='*.py' -E '(class .*\(nn\.Module\)|loss\.backward\(\)|init_process_group|DistributedDataParallel|FSDP|DeviceMesh)' src/ scripts/ 2>/dev/null
+grep -rl --include='*.py' -E '(class .*\(nn\.Module\)|class .*\(.*LightningModule\)|class .*\(.*pl\.LightningModule\)|loss\.backward\(\)|trainer\.fit|Trainer\.fit|init_process_group|DistributedDataParallel|FSDP|DeviceMesh)' src/ scripts/ 2>/dev/null
 ```
 
 Present the proposal to the user as a confirmable list. Wait for confirmation or edits before proceeding to Phase 2.
@@ -119,7 +119,7 @@ Emit findings of the form:
 
 `citation` is required. For static-phase findings, the citation comes from the entry's row in `reference/pytorch.md` (which itself must point to an upstream source). Findings whose reference entry has no citation are dropped silently.
 
-**Detection technique.** Use `grep` with the patterns from each category in `reference/pytorch.md`. Pattern-match conservatively: if a candidate is ambiguous (e.g., `.item()` *might* be inside a compiled region but you can't tell from grep alone), prefer false positives over false negatives at static phase — Phase 5 dynamic introspection (when run) will confirm or contradict. Note ambiguity in `why`.
+**Detection technique.** Use `grep` with the patterns *already inline* in `reference/pytorch.md` — the bullets that read like regex syntax (e.g., `\.item\(\)`, `\.tolist\(\)`). Do **not** synthesize new regexes from prose-only bullets (e.g., "data-dependent control flow on tensor values"). Prose bullets describe failure modes that need an LLM read of the code or — better — a Phase 5 dynamic introspection pass; trying to grep them produces noisy false positives. If a prose bullet has no inline regex, drop it from the static phase and rely on Phase 5 to catch it. Pattern-match conservatively: if a candidate is ambiguous (e.g., `.item()` *might* be inside a compiled region but you can't tell from grep alone), prefer false positives over false negatives at static phase — Phase 5 dynamic introspection (when run) will confirm or contradict. Note ambiguity in `why`.
 
 **Hot-path heuristic.** Some categories (perf, distributed) only matter inside the training loop's hot path. Treat any function with `loss.backward()` or `Trainer.fit` reachable from it as hot path. Ops in `__init__`, top-level module construction, or test files are not hot path — drop perf/distributed findings on those.
 
@@ -149,15 +149,19 @@ prompt:
 
 Embed full file content (not just paths) — the subagent can't see your filesystem.
 
-**Validate the return.** The subagent returns JSON with `findings: [...]` and `research_summary: "..."`. Check:
+**Validate the return.** The subagent returns JSON with `findings: [...]` and `research_summary: "..."`. Apply checks in two tiers:
 
-- `findings` is a list of objects, each with non-empty `citation`, `category: "modernize"`, `severity: "info"`, and `file`/`line`/`snippet`/`why`/`fix` populated.
-- `len(findings) <= 15`.
-- `research_summary` is a non-empty string.
+*Shape checks* (failure → retry once with the prefix `"Your prior return was malformed: <reason>. Please return per the contract."`; on second failure, drop the modernize phase and log to "Skipped passes":
+- top-level object parses as JSON
+- `findings` is a list (possibly empty)
+- `research_summary` is a non-empty string
 
-On malformed return: re-dispatch once with the prefix `"Your prior return was malformed: <reason>. Please return per the contract."` If it fails twice, drop the modernize phase, log a single line in the report's "Skipped passes" section: `modernize: subagent return malformed twice`, and continue.
+*Content checks* (failure → drop offending findings, keep the rest, no retry):
+- drop findings missing `citation`, `category`, `severity`, `file`, `line`, `snippet`, `why`, or `fix`
+- drop findings whose `category != "modernize"` or `severity != "info"`
+- if `len(findings) > 15` after the drops, keep the first 15 (the subagent's own ranking)
 
-Aggregate the validated findings for Phase 6.
+Aggregate the surviving validated findings for Phase 6.
 
 ## Phase 5 — Dynamic introspection (opt-in)
 
@@ -192,6 +196,8 @@ ls tests/test_*forward*.py 2>/dev/null
 ```
 
 If found, propose to the user. If confirmed, encode as the entrypoint dict.
+
+**Before scaffolding, check whether the file already exists.** If `scripts/audit_introspection.py` is present and has been hand-edited (not just the stub template; check whether the file's first line matches the canonical stub docstring `"""Audit introspection entrypoint. Fill in tensor shapes and dtypes."""`), prefer using it as-is — do not overwrite. Propose it to the user as the entrypoint. If the file exists but matches the stub template verbatim, the user has not yet filled in shapes/dtypes — print a reminder and stop Phase 5 here.
 
 If none found, offer to scaffold `scripts/audit_introspection.py`. Generate the stub from the user's model construction code (look for the `nn.Module` subclass definition and its `__init__`). The stub:
 
@@ -228,15 +234,18 @@ prompt:
       <JSON list — lets the subagent skip non-applicable passes>
 ```
 
-**Validate the return.** The subagent returns JSON with `passes_run`, `passes_skipped`, `findings`, `summary_metrics`. Check:
+**Validate the return.** Apply the same two-tier policy as Phase 4:
 
-- `findings` is a list of objects with non-empty `citation` and one of the five static-audit categories.
-- Each finding has an `evidence_path` pointing into `/tmp/audit-dynamic-<pid>/`.
-- `summary_metrics` is an object (may be empty if all passes were skipped).
+*Shape checks* (failure → retry once; on second failure, log to "Skipped passes (dynamic mode)" and continue with whatever passes did succeed):
+- top-level object parses as JSON
+- `findings` is a list (possibly empty)
+- `passes_run`, `passes_skipped`, and `summary_metrics` are present
 
-On malformed return: same retry policy as Phase 4 (re-dispatch once with a reason; on second failure, log to skipped passes and continue).
+*Content checks* (failure → drop offending findings, keep the rest):
+- drop findings missing `citation` or `evidence_path`
+- drop findings whose `category` is not one of the five static categories (`compile`, `numerical`, `autograd`, `distributed`, `perf`)
 
-Aggregate the validated findings for Phase 6. Surface `passes_skipped` and `summary_metrics` in the report.
+Aggregate the surviving validated findings, the `passes_skipped` map, and the `summary_metrics` for Phase 6.
 
 ## Phase 6 — Report assembly
 
