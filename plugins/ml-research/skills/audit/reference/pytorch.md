@@ -35,7 +35,7 @@ TORCH_TRACE=/tmp/trace python script.py && tlparse /tmp/trace
 
 - https://pytorch.org/docs/stable/torch.compiler_troubleshooting.html
 - https://pytorch.org/docs/stable/generated/torch.compile.html
-- https://github.com/pytorch/tlparse
+- https://github.com/meta-pytorch/tlparse
 
 ---
 
@@ -46,10 +46,10 @@ TORCH_TRACE=/tmp/trace python script.py && tlparse /tmp/trace
 **Anti-patterns to grep for:**
 
 - `F.softmax(x, ...)`, `torch.exp(x)`, `torch.log(x)`, `(-x).exp()` where `x` is a logit tensor in fp16/bf16 without an explicit `x.float()` upcast.
-- `tensor.sum()` / `tensor.mean()` / `tensor.var()` over very large tensors (e.g., loss reduction over a long sequence) where the tensor is fp16. bf16 sums are usually fine; fp16 accumulation overflows.
+- `tensor.sum()` / `tensor.mean()` / `tensor.var()` over very large tensors (e.g., loss reduction over a long sequence) where the tensor is fp16. fp16 sums overflow (8-bit exponent absent, 5 mantissa bits); bf16 sums don't overflow but lose precision (8-bit exponent, only 7 mantissa bits) for large reductions. Upcast the accumulator to fp32 (`x.float().sum()`) for both.
 - `eps=1e-8` (or smaller) in normalization layers (`LayerNorm`, `BatchNorm`, `RMSNorm`) when running in fp16 — `1e-8` is below fp16's smallest normal (`6e-5`).
 - `(1 - x)` for very small `x` in fp16 — catastrophic cancellation; use log-space or upcast.
-- Training in bf16 without setting `torch.backends.cuda.matmul.allow_tf32 = True` and `torch.backends.cudnn.allow_tf32 = True` (or using `torch.set_float32_matmul_precision('high'|'highest')` on PyTorch ≥ 2.0).
+- Training in fp32 (or running fp32 fallback paths under autocast) without enabling TF32 — on Ampere+ you leave matmul throughput on the table. Use `torch.set_float32_matmul_precision('high')` (PyTorch ≥ 2.0) or, on PyTorch ≥ 2.9, the successor `torch.backends.fp32_precision = "tf32"`. (TF32 only affects fp32 ops; it is a no-op for bf16/fp16 matmuls.)
 - Using `torch.cuda.amp.GradScaler` when training is bf16 — `GradScaler` is fp16-only and is a no-op (and deprecated) under bf16.
 
 **Citations:**
@@ -70,13 +70,13 @@ TORCH_TRACE=/tmp/trace python script.py && tlparse /tmp/trace
 - `param.data = something` — bypasses autograd registration; set the parameter via `param.copy_(...)` under `torch.no_grad()` or rebind via `setattr(module, name, nn.Parameter(...))`.
 - `tensor.detach()` then expecting gradients to flow downstream.
 - `loss.backward(retain_graph=True)` inside a regular training loop (almost always a bug — usually means the user wanted `.detach()` somewhere).
-- Two `loss.backward()` calls without an intervening `optimizer.zero_grad()` and without `retain_graph=True` (will error or silently accumulate).
+- Two `loss.backward()` calls without an intervening `optimizer.zero_grad()` and without `retain_graph=True`, *outside an explicit gradient-accumulation pattern* (will error or silently accumulate; legitimate when accumulation is intended).
 - `torch.nn.utils.clip_grad_norm_(params, ...)` called *after* `optimizer.step()` (clips on the next iter's pre-step grads, not this step's).
 - `torch.autograd.grad(...)` with `create_graph=True` in a training loop without realizing the higher-order graph is retained.
 
 **Citations:**
 
-- https://pytorch.org/docs/stable/notes/autograd.html#in-place-operations-on-tensors
+- https://pytorch.org/docs/stable/notes/autograd.html#in-place-operations-with-autograd
 - https://pytorch.org/docs/stable/autograd.html
 - https://pytorch.org/docs/stable/notes/autograd.html#in-place-correctness-checks
 
@@ -92,7 +92,7 @@ TORCH_TRACE=/tmp/trace python script.py && tlparse /tmp/trace
 - `DataLoader(..., shuffle=True, ...)` under DDP without `DistributedSampler` (each rank shuffles independently → duplicate sampling).
 - `DistributedSampler` constructed but `sampler.set_epoch(epoch)` not called per epoch — same shuffle every epoch.
 - `tensor.item()` or `tensor.cpu()` inside a hook running on every rank under DDP — turns a non-blocking op into a sync that stalls the cohort.
-- `torch.distributed.init_process_group(...)` without an explicit `timeout=timedelta(...)` argument — defaults can be too short or too long depending on PyTorch version.
+- `torch.distributed.init_process_group(...)` without an explicit `timeout=timedelta(minutes=N)` argument — the NCCL default is 10 min (PyTorch 2.x), which is usually too short for long-haul collectives like FSDP all-gathers under heavy load. Set explicitly so behavior is portable across versions.
 - Missing `dist.barrier()` before `torch.save(checkpoint, ...)` on rank 0 (other ranks may exit before save completes, killing the rank-0 process via SIGCHLD on some launchers).
 - `model.no_sync()` context wrapping more than the gradient-accumulation chunk (gradients land in the wrong buckets).
 - Bare `model = DistributedDataParallel(model)` without `device_ids=[local_rank]` — DDP auto-detects but only correctly when the model is already on the right device.
@@ -121,7 +121,7 @@ TORCH_TRACE=/tmp/trace python script.py && tlparse /tmp/trace
 - Using `nn.Linear` on input that has been `.transpose()`d but not `.contiguous()`-ified — cuBLAS may pick a slow path.
 - DataLoader with `num_workers=0` in a CPU-bound preprocessing pipeline.
 - DataLoader with `pin_memory=False` when the receiving device is CUDA.
-- `optimizer.zero_grad()` instead of `optimizer.zero_grad(set_to_none=True)` — `set_to_none=True` is faster and uses less memory.
+- `optimizer.zero_grad(set_to_none=False)` — defeats the PyTorch ≥ 2.0 default (which sets grads to None) and reintroduces the slow zero-fill path; can also mask gradient-skipping bugs by leaving stale zero tensors around.
 
 **Citations:**
 
@@ -155,8 +155,8 @@ Each pass listed here is a candidate for `audit-dynamic` to run when its applica
 |---|---|---|---|
 | `dynamo_explain` | `torch._dynamo.explain(model)(*ex)` | graph breaks, reasons, suggested fixes | https://pytorch.org/docs/stable/torch.compiler_troubleshooting.html |
 | `compile_logs` | `TORCH_LOGS=graph_breaks,recompiles python harness.py` | recompilation triggers, dynamic-shape misses | https://pytorch.org/docs/stable/logging.html |
-| `trace_tlparse` | `TORCH_TRACE=/tmp/t python harness.py && tlparse /tmp/t` | full compile timeline, kernel fusions missed | https://github.com/pytorch/tlparse |
-| `anomaly` | `with torch.autograd.detect_anomaly(): loss.backward()` | NaN/inf in grad, in-place leaf modification | https://pytorch.org/docs/stable/autograd.html#anomaly-detection |
+| `trace_tlparse` | `TORCH_TRACE=/tmp/t python harness.py && tlparse /tmp/t` | full compile timeline, kernel fusions missed | https://github.com/meta-pytorch/tlparse |
+| `anomaly` | `with torch.autograd.detect_anomaly(): loss.backward()` | NaN/inf in grad, in-place leaf modification | https://pytorch.org/docs/stable/autograd.html#debugging-and-anomaly-detection |
 | `profiler` | `with torch.profiler.profile(...) as p: ... ; p.key_averages().table(...)` | top ops by self-CUDA time, host↔device syncs | https://pytorch.org/docs/stable/profiler.html |
 | `memory` | `torch.cuda.memory._record_memory_history()` then `_dump_snapshot(path)` | allocator fragmentation, peak allocations, leaks | https://pytorch.org/docs/stable/torch_cuda_memory.html |
 | `flop_counter` | `with FlopCounterMode() as f: model(*ex)` | per-op FLOPs vs. peak; under-utilized GEMMs | https://github.com/pytorch/pytorch/blob/main/torch/utils/flop_counter.py |
