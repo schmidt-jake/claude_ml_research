@@ -55,7 +55,17 @@ ml_research/
 └── plugins/
     └── ml-research/
         ├── .claude-plugin/plugin.json
+        ├── agents/
+        │   ├── audit-modernize.md
+        │   ├── audit-dynamic.md
+        │   ├── autoresearch-experimenter.md
+        │   ├── autoresearch-ideator.md
+        │   └── autoresearch-reviewer.md
         └── skills/
+            ├── audit/
+            │   ├── SKILL.md
+            │   └── reference/
+            │       └── pytorch.md
             ├── autoresearch/
             ├── model-training/
             └── slurm/
