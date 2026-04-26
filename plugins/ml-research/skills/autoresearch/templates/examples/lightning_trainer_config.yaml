@@ -1,0 +1,22 @@
+# Autoresearch quick-experiment overrides. Layered on top of the project's
+# base config via:
+#   --config=config/conf.yaml --config=${CLAUDE_SKILL_DIR}/config.yaml
+#
+# Contains only project-agnostic scaffolding (short run, reduced val, a hard
+# timer). The base config is responsible for logger, data, model, and any
+# project-specific callbacks. To tag experiments launched via this config,
+# append `--trainer.logger.init_args.tags+=[autoresearch]` (or equivalent)
+# to the sbatch invocation.
+trainer:
+  max_epochs: 1
+  limit_val_batches: 50
+  log_every_n_steps: 25
+  callbacks:
+    - class_path: lightning.pytorch.callbacks.LearningRateMonitor
+      init_args:
+        logging_interval: step
+        log_momentum: true
+    - class_path: lightning.pytorch.callbacks.Timer
+      init_args:
+        duration: 00:00:30:00
+        interval: step

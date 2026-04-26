@@ -1,0 +1,54 @@
+{
+  "planPath": "docs/superpowers/plans/2026-04-24-autoresearch-redesign.md",
+  "tasks": [
+    {
+      "id": 9,
+      "subject": "Task 0: Restructure files and directories",
+      "status": "pending",
+      "description": "**Goal:** Move existing scripts/templates/config to the new examples/ layout, create the agents/ directory, and delete the old templates that are being replaced.\n\n**Files:**\n- Create dir: `plugins/ml-research/agents/`\n- Create dir: `plugins/ml-research/skills/autoresearch/templates/examples/`\n- Move: `plugins/ml-research/skills/autoresearch/scripts/count_params.py` -> `templates/examples/count_params_lightning.py`\n- Move: `plugins/ml-research/skills/autoresearch/scripts/launch.sbatch` -> `templates/examples/launch_slurm_lightning.sbatch`\n- Move: `plugins/ml-research/skills/autoresearch/config.yaml` -> `templates/examples/lightning_trainer_config.yaml`\n- Delete: `scripts/`, `templates/autoresearch_ideas.md`, `autoresearch_log.md`, `autoresearch_results.csv`\n\n```json:metadata\n{\"files\": [\"plugins/ml-research/agents/\", \"plugins/ml-research/skills/autoresearch/templates/examples/\"], \"verifyCommand\": \"test -d plugins/ml-research/agents/ && test -f plugins/ml-research/skills/autoresearch/templates/examples/count_params_lightning.py && test -f plugins/ml-research/skills/autoresearch/templates/examples/launch_slurm_lightning.sbatch && test -f plugins/ml-research/skills/autoresearch/templates/examples/lightning_trainer_config.yaml && ! test -d plugins/ml-research/skills/autoresearch/scripts/ && ! test -f plugins/ml-research/skills/autoresearch/config.yaml && echo OK\", \"acceptanceCriteria\": [\"agents/ dir exists\", \"examples/ dir has three files\", \"scripts/ deleted\", \"old autoresearch_ templates deleted\"], \"planTaskNumber\": 0}\n```"
+    },
+    {
+      "id": 10,
+      "subject": "Task 1: Write new template files",
+      "status": "pending",
+      "blockedBy": [9],
+      "description": "**Goal:** Create the four campaign-initialization templates (config.json, ideas.md, insights.md, results.csv).\n\n**Files:**\n- Create: `plugins/ml-research/skills/autoresearch/templates/config.json`\n- Create: `plugins/ml-research/skills/autoresearch/templates/ideas.md`\n- Create: `plugins/ml-research/skills/autoresearch/templates/insights.md`\n- Create: `plugins/ml-research/skills/autoresearch/templates/results.csv`\n\n```json:metadata\n{\"files\": [\"plugins/ml-research/skills/autoresearch/templates/config.json\", \"plugins/ml-research/skills/autoresearch/templates/ideas.md\", \"plugins/ml-research/skills/autoresearch/templates/insights.md\", \"plugins/ml-research/skills/autoresearch/templates/results.csv\"], \"verifyCommand\": \"python3 -c 'import json; json.load(open(\\\"plugins/ml-research/skills/autoresearch/templates/config.json\\\"))' && grep -q FIFO plugins/ml-research/skills/autoresearch/templates/ideas.md && grep -q '## Patterns observed' plugins/ml-research/skills/autoresearch/templates/insights.md && head -1 plugins/ml-research/skills/autoresearch/templates/results.csv | grep -q '^experiment_id,branch,commit,job_id,wandb_url,trainable_params,total_params,final_train_loss,final_val_loss$' && echo OK\", \"acceptanceCriteria\": [\"config.json valid JSON matching spec schema\", \"ideas.md has FIFO header\", \"insights.md has 4 standard sections\", \"results.csv has correct header row only\"], \"planTaskNumber\": 1}\n```"
+    },
+    {
+      "id": 11,
+      "subject": "Task 2: Author the Ideator agent definition",
+      "status": "pending",
+      "blockedBy": [9],
+      "description": "**Goal:** Create `plugins/ml-research/agents/autoresearch-ideator.md` -- system prompt for the subagent that generates one experiment idea with citations per dispatch. Spec sections: Subagents -> Default model+effort, Tool allowlists, Input/Output contracts, Sources requirements (4-tier), Curated source list, Proxy-task discipline, Hard rules.\n\n```json:metadata\n{\"files\": [\"plugins/ml-research/agents/autoresearch-ideator.md\"], \"verifyCommand\": \"python3 -c 'import yaml; content=open(\\\"plugins/ml-research/agents/autoresearch-ideator.md\\\").read(); parts=content.split(\\\"---\\\",2); fm=yaml.safe_load(parts[1]); assert fm[\\\"name\\\"]==\\\"autoresearch-ideator\\\"; assert fm[\\\"model\\\"]==\\\"opus\\\"; assert \\\"WebSearch\\\" in fm.get(\\\"tools\\\",[]); assert \\\"Edit\\\" in fm.get(\\\"disallowedTools\\\",[]); body=parts[2].lower(); [body.index(s) for s in [\\\"identity\\\",\\\"input contract\\\",\\\"output contract\\\",\\\"citation\\\",\\\"curated source\\\",\\\"proxy-task\\\",\\\"hard rules\\\"]]; print(\\\"OK\\\")'\", \"acceptanceCriteria\": [\"frontmatter has correct name/model/effort/tools/disallowedTools\", \"body has all required sections\", \"no SLURM/Lightning hardcoding\", \"length 400-600 lines\"], \"planTaskNumber\": 2}\n```"
+    },
+    {
+      "id": 12,
+      "subject": "Task 3: Author the Experimenter agent definition",
+      "status": "pending",
+      "blockedBy": [9],
+      "description": "**Goal:** Create `plugins/ml-research/agents/autoresearch-experimenter.md` -- system prompt for the subagent that runs one experiment end-to-end with internal debug retry. Spec sections: Subagents -> Default model+effort, Tool allowlists, Input/Output contracts (success+crash), Internal debug loop, Diagnosis->fix table, GPU utilization, torch.compile cache, Acceptance criteria, Proxy-task discipline, Hard rules, Experiment branch lifecycle, experiment file format.\n\n```json:metadata\n{\"files\": [\"plugins/ml-research/agents/autoresearch-experimenter.md\"], \"verifyCommand\": \"python3 -c 'import yaml; content=open(\\\"plugins/ml-research/agents/autoresearch-experimenter.md\\\").read(); parts=content.split(\\\"---\\\",2); fm=yaml.safe_load(parts[1]); assert fm[\\\"name\\\"]==\\\"autoresearch-experimenter\\\"; assert fm[\\\"model\\\"]==\\\"sonnet\\\"; assert fm.get(\\\"isolation\\\")==\\\"worktree\\\"; tools=fm.get(\\\"tools\\\",[]); [tools.index(t) for t in [\\\"Bash\\\",\\\"Read\\\",\\\"Edit\\\",\\\"Write\\\",\\\"Grep\\\",\\\"Monitor\\\"]]; body=parts[2].lower(); [body.index(s) for s in [\\\"identity\\\",\\\"input contract\\\",\\\"output contract\\\",\\\"debug loop\\\",\\\"diagnosis\\\",\\\"gpu utilization\\\",\\\"torch.compile\\\",\\\"acceptance criteria\\\",\\\"hard rules\\\"]]; print(\\\"OK\\\")'\", \"acceptanceCriteria\": [\"frontmatter correct (sonnet, isolation=worktree)\", \"body has all required sections\", \"no streaming of launch_experiment stdout/stderr\"], \"planTaskNumber\": 3}\n```"
+    },
+    {
+      "id": 13,
+      "subject": "Task 4: Author the Reviewer agent definition",
+      "status": "pending",
+      "blockedBy": [9],
+      "description": "**Goal:** Create `plugins/ml-research/agents/autoresearch-reviewer.md` -- system prompt for the subagent that synthesizes cross-experiment insights every 5 succeeded experiments. Spec sections: Subagents -> Default model+effort, Tool allowlists, Input/Output contracts, insights.md structure, Proxy-task discipline, Hard rules.\n\n```json:metadata\n{\"files\": [\"plugins/ml-research/agents/autoresearch-reviewer.md\"], \"verifyCommand\": \"python3 -c 'import yaml; content=open(\\\"plugins/ml-research/agents/autoresearch-reviewer.md\\\").read(); parts=content.split(\\\"---\\\",2); fm=yaml.safe_load(parts[1]); assert fm[\\\"name\\\"]==\\\"autoresearch-reviewer\\\"; assert fm[\\\"model\\\"]==\\\"opus\\\"; disallowed=fm.get(\\\"disallowedTools\\\",[]); assert \\\"Edit\\\" in disallowed; assert \\\"Write\\\" in disallowed; body=parts[2].lower(); [body.index(s) for s in [\\\"identity\\\",\\\"input contract\\\",\\\"output contract\\\",\\\"synthesis\\\",\\\"proxy-overfit\\\",\\\"strategic note\\\",\\\"hard rules\\\"]]; print(\\\"OK\\\")'\", \"acceptanceCriteria\": [\"frontmatter correct (opus, disallowedTools includes Edit/Write)\", \"body has all required sections\", \"length 250-350\"], \"planTaskNumber\": 4}\n```"
+    },
+    {
+      "id": 14,
+      "subject": "Task 5: Rewrite SKILL.md as the orchestrator prompt",
+      "status": "pending",
+      "blockedBy": [10, 11, 12, 13],
+      "description": "**Goal:** Replace `plugins/ml-research/skills/autoresearch/SKILL.md` with a thin orchestrator prompt: Phase 0 setup, Phase 1 loop, trunk-side git ops, dispatch of three subagents. Spec sections: Architecture, Phase 0/1 (full), Git choreography, Acceptance criteria, Retry policy, Autonomy principle, Subagents -> Input contract, SKILL.md shape.\n\n```json:metadata\n{\"files\": [\"plugins/ml-research/skills/autoresearch/SKILL.md\"], \"verifyCommand\": \"python3 -c 'import yaml; content=open(\\\"plugins/ml-research/skills/autoresearch/SKILL.md\\\").read(); parts=content.split(\\\"---\\\",2); fm=yaml.safe_load(parts[1]); assert fm[\\\"name\\\"]==\\\"autoresearch\\\"; body=parts[2].lower(); [body.index(s) for s in [\\\"phase 0\\\",\\\"phase 1\\\",\\\"acceptance criteria\\\",\\\"retry policy\\\",\\\"autonomy\\\",\\\"autoresearch-ideator\\\",\\\"autoresearch-experimenter\\\",\\\"autoresearch-reviewer\\\",\\\"training_objective\\\",\\\"experiment_budget\\\",\\\"read_metrics\\\"]]; assert \\\"sbatch \\\" not in body; assert \\\"sacct \\\" not in body; assert \\\"squeue \\\" not in body; assert \\\"lightningmodule\\\" not in body; assert \\\"jsonargparse\\\" not in body; print(\\\"OK\\\")'\", \"acceptanceCriteria\": [\"frontmatter correct\", \"all required sections present\", \"subagent_type strings correct\", \"no SLURM/Lightning hardcoding\", \"length 200-300 lines\"], \"planTaskNumber\": 5}\n```"
+    },
+    {
+      "id": 15,
+      "subject": "Task 6: Plugin validation and integration smoke test",
+      "status": "pending",
+      "blockedBy": [14],
+      "description": "**Goal:** Verify the plugin manifest is still valid after restructuring; run an end-to-end check.\n\n```json:metadata\n{\"files\": [], \"verifyCommand\": \"claude plugin validate plugins/ml-research/ && claude plugin validate . && python3 -c 'import yaml,glob; [yaml.safe_load(open(f).read().split(\\\"---\\\",2)[1]) for f in glob.glob(\\\"plugins/ml-research/agents/*.md\\\")]; print(\\\"agents OK\\\")' && ! grep -r 'scripts/count_params.py\\\\|scripts/launch.sbatch' plugins/ml-research/ --include='*.md' --include='*.json' --include='*.yaml' && echo OK\", \"acceptanceCriteria\": [\"plugin validate exits 0\", \"marketplace validate exits 0\", \"all agent frontmatter parseable\", \"no legacy script-path references\"], \"planTaskNumber\": 6}\n```"
+    }
+  ],
+  "lastUpdated": "2026-04-24T00:00:00Z"
+}

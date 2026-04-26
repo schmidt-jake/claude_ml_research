@@ -1,0 +1,37 @@
+{
+  "project_name": "<set by Phase 0 — should match the worktree suffix>",
+  "relevant_files": {
+    "read_only": [],
+    "editable": []
+  },
+  "entrypoints": {
+    "count_params": {
+      "command": "<command that prints {trainable_params, total_params} JSON to stdout>"
+    },
+    "launch_experiment": {
+      "command": "<command that submits a job and prints the job ID to stdout>",
+      "environment": "<one of: slurm | local | k8s | ray | ...>"
+    },
+    "read_metrics": {
+      "command": "<command that prints {final_train_loss, final_val_loss, ...} JSON to stdout, given $JOB_ID env var>"
+    }
+  },
+  "experiment_budget": {
+    "max_steps": 0,
+    "max_wall_time": "00:00:00"
+  },
+  "compile_cache_dir": null,
+  "debug_cap": 3,
+  "constraints": [
+    "no change to random seed, validation dataset, validation logic, or validation metrics",
+    "no change to the experiment budget defined in config.json (experiment_budget)",
+    "parameter count must be <= baseline * 1.05",
+    "no change to core dependencies / package versions"
+  ],
+  "theme_priorities": {
+    "high": [],
+    "medium": [],
+    "low": []
+  },
+  "prior_findings": []
+}
