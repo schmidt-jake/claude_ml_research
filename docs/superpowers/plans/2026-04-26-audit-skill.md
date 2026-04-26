@@ -920,7 +920,7 @@ with FlopCounterMode(model) as fc:
 print(fc.flop_counts)
 ```
 
-Parse: per-op FLOP totals (the dict is keyed by op name like `aten.mm`, not by module). Compare against GPU peak (lookup from `gpu_model` in the dispatch's `Environment`); flag GEMMs that under-utilize peak by >10× (likely too small a problem size for the device).
+Parse: a nested dict — outer-keyed by module name (with `Global` aggregating the whole run), inner-keyed by op identifier (e.g., `aten.addmm`). Compare per-module GEMM totals against GPU peak (lookup from `gpu_model` in the dispatch's `Environment`); flag GEMMs that under-utilize peak by >10× (likely too small a problem size for the device).
 
 Save the printed dict to `/tmp/audit-dynamic-<pid>/flop_counter.txt` for the user's offline inspection; reference that path in `evidence_path`.
 
