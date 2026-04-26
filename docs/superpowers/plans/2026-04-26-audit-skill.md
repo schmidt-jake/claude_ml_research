@@ -1277,7 +1277,25 @@ When `ls scripts/audit_introspection.py` matches, **read its first line** before
 
 When the heuristic finds a function-path entrypoint or `audit_introspection.py` that has been hand-edited (first line ≠ the canonical stub docstring), propose it; if confirmed, encode as the entrypoint dict and proceed to dispatch.
 
-If nothing is found, the main agent offers to scaffold `scripts/audit_introspection.py` from the user's model construction code, with `# TODO:` markers where the user fills in tensor shapes/dtypes. The user can run audit again with `--dynamic` after editing.
+If nothing is found, offer to scaffold `scripts/audit_introspection.py` from the user's model construction code (look for the `nn.Module` subclass definition and its `__init__`). The stub:
+
+```python
+"""Audit introspection entrypoint. Fill in tensor shapes and dtypes."""
+import torch
+from <user's module> import <user's Model>
+
+
+def build_for_introspection():
+    # TODO: replace with the constructor args matching your config
+    model = <user's Model>(...).cuda().eval()
+    # TODO: replace with realistic example shapes/dtypes for your model
+    example_inputs = (
+        torch.randn(2, 3, 224, 224, device="cuda"),
+    )
+    return model, example_inputs
+```
+
+Write the stub, tell the user it has TODOs to fill in, and stop Phase 5 here. The user can re-run `/ml-research:audit --dynamic` after editing.
 
 **(3) Dispatch `audit-dynamic`:**
 
