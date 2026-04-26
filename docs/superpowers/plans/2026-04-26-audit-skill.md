@@ -807,7 +807,7 @@ Return a single JSON object as your final message.
 
 - `passes_run` — array of pass IDs that completed successfully.
 - `passes_skipped` — object mapping pass ID → one-line reason (missing dependency, not applicable, timed out).
-- `findings` — array of finding objects. `category` is one of `compile`, `numerical`, `autograd`, `distributed`, `perf`. `severity` is one of `error`, `warning`, `info` per the static-phase definitions. Same shape as static findings but with an additional `evidence_path` field pointing into `/tmp/audit-dynamic-<pid>/`.
+- `findings` — array of finding objects. `category` is one of `compile`, `numerical`, `autograd`, `distributed`, `perf` — the same five used by the static phase. If a finding doesn't fit one of these (e.g., a profiler-only observation), choose the closest one — `perf` is the catch-all for runtime/observability findings — do not introduce new categories like `profile` or `memory`. `severity` is one of `error`, `warning`, `info` per the static-phase definitions. Same shape as static findings but with an additional `evidence_path` field pointing into `/tmp/audit-dynamic-<pid>/`.
 - `summary_metrics` — object with quantitative summaries the report surfaces in the "Run summary" line. Keys: `graph_breaks`, `recompiles`, `peak_gpu_mem_mb`, `host_device_syncs_per_step`. Omit a key if the relevant pass was skipped.
 
 ## Pass list
@@ -847,10 +847,10 @@ Citation: https://pytorch.org/docs/stable/logging.html
 ```bash
 TORCH_TRACE=/tmp/audit-dynamic-<pid>/trace \
   python /tmp/audit-dynamic-<pid>/harness.py
-tlparse /tmp/audit-dynamic-<pid>/trace -o /tmp/audit-dynamic-<pid>/tlparse-report.html
+tlparse /tmp/audit-dynamic-<pid>/trace -o /tmp/audit-dynamic-<pid>/tlparse-out/
 ```
 
-If `tlparse` is not on `$PATH`, skip (`passes_skipped`). Parse `index.html` for headline metrics: total compile time, kernel-fusion count, missed fusions. Emit findings for missed-fusion clusters, per-pass compile-time outliers.
+If `tlparse` is not on `$PATH`, skip (`passes_skipped`). Parse `tlparse-out/index.html` for headline metrics: total compile time, kernel-fusion count, missed fusions. Emit findings for missed-fusion clusters, per-pass compile-time outliers.
 
 Citation: https://github.com/meta-pytorch/tlparse
 
@@ -899,6 +899,7 @@ torch.cuda.memory._record_memory_history(max_entries=1_000_000)
 out = model(*inputs)
 loss = out.sum() if out.requires_grad else out.float().sum()
 loss.backward()
+torch.cuda.synchronize()
 torch.cuda.memory._dump_snapshot("/tmp/audit-dynamic-<pid>/memory.pickle")
 torch.cuda.memory._record_memory_history(enabled=None)
 print(torch.cuda.memory_summary())
@@ -919,7 +920,9 @@ with FlopCounterMode(model) as fc:
 print(fc.flop_counts)
 ```
 
-Parse: per-module FLOP totals. Compare against GPU peak (lookup from `gpu_model` in the dispatch's `Environment`); flag GEMMs that under-utilize peak by >10× (likely too small a problem size for the device).
+Parse: per-op FLOP totals (the dict is keyed by op name like `aten.mm`, not by module). Compare against GPU peak (lookup from `gpu_model` in the dispatch's `Environment`); flag GEMMs that under-utilize peak by >10× (likely too small a problem size for the device).
+
+Save the printed dict to `/tmp/audit-dynamic-<pid>/flop_counter.txt` for the user's offline inspection; reference that path in `evidence_path`.
 
 Citation: https://github.com/pytorch/pytorch/blob/main/torch/utils/flop_counter.py
 
@@ -932,13 +935,13 @@ The static-phase findings tell you what's actually present in the user's code. S
 - Skip `flop_counter` if no `nn.Linear`, `nn.Conv*`, `F.linear`, `F.conv*`, `@`, `torch.bmm`, `torch.einsum` appears in the target files (no GEMM ops to count).
 - Skip `trace_tlparse` if `tlparse` is not on `$PATH` (`which tlparse` returns nonzero). Note in `passes_skipped`: `"tlparse not installed; install with: uv pip install tlparse"`.
 
-`profiler` and `memory` always apply (they're agnostic to the model's structure).
+`profiler` always applies (it's agnostic to the model's structure). `memory` skips when `torch.cuda.is_available()` is False or when no tensor in `(model, *example_inputs)` is on CUDA — emit `passes_skipped: {"memory": "no CUDA tensors in entrypoint"}`.
 
 ## Hard rules
 
-- **Each pass runs in its own subprocess wrapped in `timeout 90s`.** Use `bash -c 'timeout 90s python harness_<pass>.py'` or equivalent. A timed-out pass is added to `passes_skipped` with the reason `"timed out (90s)"`. Never block another pass.
+- **Each pass runs in its own subprocess wrapped in `timeout 90s`.** Spawn from your top-level `Bash` tool calls — `bash -c 'timeout 90s python harness_<pass>.py'` is correct. **Do not** spawn child processes from inside a parent Python that has already imported `torch`: CUDA's no-fork policy means the child inherits a poisoned context and the pass will fail unrelated to its own logic. Always go `Bash → bash -c → timeout → python`. A timed-out pass is added to `passes_skipped` with the reason `"timed out (90s)"`. Never block another pass.
 - **Total wall-clock cap: 5 minutes.** If you've consumed 4 minutes of wall time and have remaining passes, emit them as `passes_skipped: {"<pass>": "wall-clock budget exhausted"}` and return.
-- **All artifacts under `/tmp/audit-dynamic-<pid>/`.** Create the directory at the start. Filenames: `harness.py`, `dynamo_explain.txt`, `compile_logs.txt`, `trace/`, `tlparse-report.html`, `anomaly.txt`, `profiler.json`, `memory.pickle`. Reference these paths in `evidence_path` fields.
+- **All artifacts under `/tmp/audit-dynamic-<pid>/`.** Create the directory at the start. Filenames: `harness.py`, `dynamo_explain.txt`, `compile_logs.txt`, `trace/`, `tlparse-out/` (directory; entry `index.html`), `anomaly.txt`, `profiler.json`, `memory.pickle`, `flop_counter.txt`. Reference these paths in `evidence_path` fields.
 - **Truncate or summarize trace files >100 MB.** A `TORCH_TRACE` directory or a `profiler.json` over 100 MB is too big for the user to inspect comfortably; replace it with a summary text file and note "truncated; original was N MB" in the corresponding finding's `why`.
 - **No edits to user code.** Read-only. Your harness file lives under `/tmp/audit-dynamic-<pid>/`. If the dispatch's `Introspection entrypoint` is `type: script` and points to a `scripts/audit_introspection.py` stub the main agent created, you may *fill in inferred shapes/dtypes only when explicitly told to in the dispatch prompt* — otherwise treat scripts as read-only.
 - **Citation per finding.** Use the runbook's citation as the default; if a parsed output points at a more specific doc URL, prefer that.
