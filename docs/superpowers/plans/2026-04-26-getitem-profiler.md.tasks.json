@@ -1,0 +1,47 @@
+{
+  "planPath": "docs/superpowers/plans/2026-04-26-getitem-profiler.md",
+  "tasks": [
+    {
+      "id": 0,
+      "subject": "Task 0: Scaffold skill directory and synthetic test fixtures",
+      "status": "pending",
+      "description": "**Goal:** Lay down the skill directory + two synthetic test datasets the harness can be exercised against.\n\n**Files:**\n- Create: plugins/ml-research/skills/getitem-profiler/SKILL.md (frontmatter stub)\n- Create: plugins/ml-research/skills/getitem-profiler/scripts/profile_getitem.py (empty main)\n- Create: plugins/ml-research/skills/getitem-profiler/tests/fixtures/tiny_image_dataset.py\n- Create: plugins/ml-research/skills/getitem-profiler/tests/fixtures/nondeterministic_dataset.py\n- Create: plugins/ml-research/skills/getitem-profiler/tests/fixtures/README.md\n\n**Acceptance Criteria:**\n- Skill loads (frontmatter parses, name=getitem-profiler)\n- profile_getitem.py prints usage with no args\n- tiny_image_dataset.make_dataset() is deterministic under seed and >1ms per call\n- nondeterministic_dataset.make_dataset() differs across two seeded calls\n\n**Verify:** see Task 0 in plan.\n\n```json:metadata\n{\"files\": [\"plugins/ml-research/skills/getitem-profiler/SKILL.md\", \"plugins/ml-research/skills/getitem-profiler/scripts/profile_getitem.py\", \"plugins/ml-research/skills/getitem-profiler/tests/fixtures/tiny_image_dataset.py\", \"plugins/ml-research/skills/getitem-profiler/tests/fixtures/nondeterministic_dataset.py\", \"plugins/ml-research/skills/getitem-profiler/tests/fixtures/README.md\"], \"verifyCommand\": \"see plan Task 0 verify block\", \"acceptanceCriteria\": [\"skill loads\", \"profile_getitem.py prints usage\", \"tiny_image_dataset deterministic and slow\", \"nondeterministic_dataset non-deterministic\"]}\n```"
+    },
+    {
+      "id": 1,
+      "subject": "Task 1: Implement equality walker (deep_equal)",
+      "status": "pending",
+      "blockedBy": [0],
+      "description": "**Goal:** Implement deep_equal(a, b) in profile_getitem.py — recursive walker over dicts/lists/tuples/tensors/arrays/PIL/primitives, returns (passed, first_diff_path, summary).\n\n**Files:**\n- Modify: plugins/ml-research/skills/getitem-profiler/scripts/profile_getitem.py\n\n**Acceptance Criteria:**\n- Equal cases return (True, None, None) for tensors, arrays, dicts, lists, tuples, PIL Images, primitives\n- Unequal cases return correct first_diff_path (e.g. 'outputs.a', 'outputs[1]')\n- Different dtypes count as unequal\n- PIL equality compares tobytes/size/mode\n- Unknown leaf types fall back to == with exception capture\n\n**Verify:** see Task 1 verify block — tests deep_equal on all leaf types directly.\n\n```json:metadata\n{\"files\": [\"plugins/ml-research/skills/getitem-profiler/scripts/profile_getitem.py\"], \"verifyCommand\": \"see plan Task 1 verify block\", \"acceptanceCriteria\": [\"equal cases pass\", \"unequal cases name correct path\", \"dtype mismatch fails\", \"PIL bytewise compare\"]}\n```"
+    },
+    {
+      "id": 2,
+      "subject": "Task 2: Implement baseline subcommand end-to-end",
+      "status": "pending",
+      "blockedBy": [1],
+      "description": "**Goal:** Implement profile_getitem.py baseline — factory loading, RNG seeding, output cache, line_profiler integration, dataloader bench, determinism self-check, fast-dataset heuristic, JSON output.\n\n**Files:**\n- Modify: plugins/ml-research/skills/getitem-profiler/scripts/profile_getitem.py\n\n**Acceptance Criteria:**\n- baseline.json has all required keys\n- On tiny_image_dataset: equality_mode=strict, reliable_line_stats=true, top line_stats entry is the per-pixel loop with pct>50\n- On nondeterministic_dataset: equality_mode=non_deterministic, first_diff_path set, exit 0\n- argparse defaults: --num-indices 8, --num-workers 4, --bench-batches 50, --profile-scope local, --out-dir .getitem-profile\n\n**Verify:** see Task 2 verify block — runs baseline on both fixtures.\n\n```json:metadata\n{\"files\": [\"plugins/ml-research/skills/getitem-profiler/scripts/profile_getitem.py\"], \"verifyCommand\": \"see plan Task 2 verify block\", \"acceptanceCriteria\": [\"baseline.json shape correct\", \"strict mode on deterministic dataset\", \"non_deterministic mode on nondet dataset\", \"hotspot line ranked >50%\"]}\n```"
+    },
+    {
+      "id": 3,
+      "subject": "Task 3: Implement measure subcommand end-to-end",
+      "status": "pending",
+      "blockedBy": [2],
+      "description": "**Goal:** Implement profile_getitem.py measure — equality-check vs cached outputs, re-profile, compute delta_vs_baseline and delta_vs_prev_accepted, JSON output. Equality failures + raised exceptions + dataloader-bench failures all surface through equality.passed=false.\n\n**Files:**\n- Modify: plugins/ml-research/skills/getitem-profiler/scripts/profile_getitem.py\n\n**Acceptance Criteria:**\n- Unmodified factory: equality.passed=true, speedup ~1.0\n- Vectorized hotspot: equality.passed=true, speedup>1.5\n- Shape-changing edit: equality.passed=false with first_diff_path\n- Raising __getitem__: equality.passed=false with summary starting 'raised '\n- delta_vs_prev_accepted falls back to baseline if no prior accepted measure\n- Exit 0 on equality failure (it's normal flow)\n\n**Verify:** see Task 3 verify block — exercises 4 cases.\n\n```json:metadata\n{\"files\": [\"plugins/ml-research/skills/getitem-profiler/scripts/profile_getitem.py\"], \"verifyCommand\": \"see plan Task 3 verify block\", \"acceptanceCriteria\": [\"unchanged: pass + speedup ~1\", \"vectorized: pass + speedup>1.5\", \"shape-change: fail with path\", \"raise: fail with 'raised'\"]}\n```"
+    },
+    {
+      "id": 4,
+      "subject": "Task 4: Write SKILL.md orchestration prompt",
+      "status": "pending",
+      "blockedBy": [3],
+      "description": "**Goal:** Replace SKILL.md frontmatter stub with the full orchestration prompt — Identity, Setup, Greedy loop, Hard rules, Caveat layer, Termination summary, Resumption.\n\n**Files:**\n- Modify: plugins/ml-research/skills/getitem-profiler/SKILL.md\n\n**Acceptance Criteria:**\n- All required sections present\n- Decision rule references delta_vs_prev_accepted (not delta_vs_baseline) and 1.05x threshold\n- Three termination conditions named (5%, 3 consecutive failures, user interrupt)\n- All five hard rules present (scope, no cross-call state, no validation edits, one-edit-per-commit, branch-only)\n- Caveat layer matches spec verbatim\n- Length ~150-200 lines\n\n**Verify:** see Task 4 verify block — structural check via grep/python.\n\n```json:metadata\n{\"files\": [\"plugins/ml-research/skills/getitem-profiler/SKILL.md\"], \"verifyCommand\": \"see plan Task 4 verify block\", \"acceptanceCriteria\": [\"all sections present\", \"decision rule uses delta_vs_prev_accepted\", \"all hard rules present\", \"caveat layer verbatim\", \"length in range\"]}\n```"
+    },
+    {
+      "id": 5,
+      "subject": "Task 5: End-to-end smoke test",
+      "status": "pending",
+      "blockedBy": [4],
+      "description": "**Goal:** Exercise skill+harness on synthetic fixture: baseline → vectorize → measure → confirm acceptance → restore. Final integration check.\n\n**Files:**\n- No source changes. Uses /tmp/getitem-smoke as scratch.\n\n**Acceptance Criteria:**\n- Full sequence completes with no errors\n- Vectorization speedup >= 1.5\n- Original fixture restored, no leftover state\n- SKILL.md ↔ argparse surface matches (final review)\n\n**Verify:** see Task 5 verify block — full e2e bash script.\n\n```json:metadata\n{\"files\": [], \"verifyCommand\": \"see plan Task 5 verify block\", \"acceptanceCriteria\": [\"full sequence completes\", \"vectorization speedup>=1.5\", \"clean state after\", \"SKILL.md/argparse surface matches\"]}\n```"
+    }
+  ],
+  "lastUpdated": "2026-04-26"
+}
