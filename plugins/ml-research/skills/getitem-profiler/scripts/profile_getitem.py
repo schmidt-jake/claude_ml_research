@@ -18,7 +18,6 @@ def deep_equal(a: Any, b: Any, _path: str = "outputs") -> tuple[bool, str | None
     Handles dicts, lists, tuples, torch tensors, numpy arrays, PIL Images, and
     primitive types. Unknown leaf types fall back to ==.
     """
-    # Handle types in order: containers first, then leaf types.
     if isinstance(a, dict) or isinstance(b, dict):
         if not (isinstance(a, dict) and isinstance(b, dict)):
             return False, _path, f"type mismatch: {type(a).__name__} vs {type(b).__name__}"
@@ -95,7 +94,9 @@ def deep_equal(a: Any, b: Any, _path: str = "outputs") -> tuple[bool, str | None
     try:
         if a == b:
             return True, None, None
-        return False, _path, f"{type(a).__name__} != {type(b).__name__}: {a!r} vs {b!r}"
+        if type(a) is not type(b):
+            return False, _path, f"type mismatch: {type(a).__name__} vs {type(b).__name__}"
+        return False, _path, f"values differ: {a!r} vs {b!r}"
     except Exception as e:  # noqa: BLE001
         return False, _path, f"comparison failed for {type(a).__name__}: {e}"
 
