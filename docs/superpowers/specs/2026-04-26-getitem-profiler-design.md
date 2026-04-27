@@ -100,14 +100,14 @@ Success path:
 {
   "equality": {"passed": true},
   "per_call_wall_time_s": {"mean": 0.0089, "indices": [...]},
-  "delta_vs_baseline": {
-    "per_call_speedup_x": 1.38,
-    "dataloader_speedup_x": 1.12
-  },
+  "delta_vs_baseline":     {"per_call_speedup_x": 1.38, "dataloader_speedup_x": 1.12},
+  "delta_vs_prev_accepted":{"per_call_speedup_x": 1.09, "dataloader_speedup_x": 1.04},
   "line_stats": [...],
   "dataloader_bench": {...}
 }
 ```
+
+`delta_vs_baseline` is the cumulative speedup since session start (informational, surfaced in the final summary). `delta_vs_prev_accepted` is the marginal speedup of *this* edit over the most recent accepted state — this is what the skill's accept/reject decision uses. The harness reads the most recent `measure-N.json` with `equality.passed == true` to compute `delta_vs_prev_accepted`; if no prior accepted measurement exists, "previous accepted" is the baseline.
 
 Equality-failed path:
 ```json
@@ -166,12 +166,12 @@ Per iteration:
    - construct tensors on the right dtype/device once
    - remove redundant copy / `.contiguous()`
    - pre-tokenize / pre-resize at dataset init time
-5. **Apply the edit** (single Edit tool call). Commit on the branch with a message naming the targeted file:line.
+5. **Apply the edit** (single Edit tool call). Do NOT commit yet — measurement runs first, commit only on accept.
 6. **Run `profile_getitem.py measure ...`.** Read the JSON.
-7. **Decision:**
-   - **Equality failed** → `git revert HEAD --no-edit`. Increment consecutive-failure counter. Add the line to the session's failed-attempts set.
-   - **Equality passed but per-call speedup < 1.05×** → same revert path. Threshold is "5% wall-time reduction at the dataset level"; smaller wins are noise.
-   - **Equality passed and speedup ≥ 1.05×** → keep the commit. Reset the consecutive-failure counter. Append an entry to `session.md`. Loop.
+7. **Decision** (using `delta_vs_prev_accepted.per_call_speedup_x`):
+   - **Equality failed** → `git restore <changed_file>` (working-tree revert; nothing to undo in history). Increment consecutive-failure counter. Add the line to the session's failed-attempts set.
+   - **Equality passed but speedup < 1.05× over the previous accepted state** → same `git restore` path. Threshold is "5% wall-time reduction at the dataset level *for this edit*"; smaller wins are noise. Reasoning: comparing each edit against the most recent accepted state (not the original baseline) keeps the bar honest as gains accumulate.
+   - **Equality passed and speedup ≥ 1.05×** → `git add` + commit on the branch with a message naming the targeted file:line. Reset the consecutive-failure counter. Append an entry to `session.md`. Loop.
 
 After termination: print a final summary (starting per-call time, ending per-call time, total speedup, DataLoader throughput before/after, list of accepted commits, list of rejected lines). The branch is left for the user to merge or discard.
 
@@ -212,7 +212,7 @@ After termination: print a final summary (starting per-call time, ending per-cal
 1. Re-import factory (after Claude's edit), instantiate.
 2. **Equality check first** (fail-fast): for each cached index, seed, call `dataset[i]`, compare to the pickled baseline output via the equality function. On mismatch, write `measure-N.json` with the failed shape and exit 0. (Default equality: recursive walker over dicts/lists/tuples; `torch.equal` for tensors; `np.array_equal` for arrays; `tobytes()` byte-equal for PIL Images. Override via `--equality-fn pkg.mod:fn`.)
 3. If equality passes, repeat the line-profiler + DataLoader bench from `baseline`.
-4. Compute `delta_vs_baseline` against the cached `baseline.json`.
+4. Compute `delta_vs_baseline` against `baseline.json`, and `delta_vs_prev_accepted` against the most recent `measure-K.json` with `equality.passed == true` (or `baseline.json` if there's no prior accepted measurement).
 5. Write `measure-N.json`.
 
 ### Failure modes the harness handles itself
