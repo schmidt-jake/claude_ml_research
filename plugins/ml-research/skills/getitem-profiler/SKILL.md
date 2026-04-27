@@ -19,15 +19,16 @@ Confirm with the user:
        from mypkg.dataset import MyDataset
        return MyDataset(root="/path", split="train", transform=...)
    ```
-2. **`--num-indices`** — default 8.
+2. **`--num-indices`** — default 8. Bump to 16+ if the dataset is fast (~ms/call); the first call has cold-start overhead and a wider average smooths it out.
 3. **`--profile-scope`** — default `local` (only the dataset class + its defining module). Use `package` if the user's transforms / IO helpers live in sibling modules of the same top-level package.
 4. **`--num-workers`** for the DataLoader bench — default 4.
+5. **`--bench-batches`** — default 50. **Use the same value for `baseline` and every `measure` call**, otherwise `dataloader_speedup_x` is comparing different bench configurations.
 
 Then:
 
 1. Add `.getitem-profile/` to `.gitignore` if not already present.
 2. Create the side branch: `git checkout -b getitem-profile/<dataset-slug>-<YYYYMMDD-HHMM>` off the user's current `HEAD`.
-3. Run `python scripts/profile_getitem.py baseline --factory <factory> --num-indices <N> --profile-scope <scope> --num-workers <W> --out-dir .getitem-profile/`.
+3. Run `python scripts/profile_getitem.py baseline --factory <factory> --num-indices <N> --profile-scope <scope> --num-workers <W> --bench-batches <B> --out-dir .getitem-profile/`.
 4. Read `.getitem-profile/baseline.json`.
 5. Bail if either:
    - `equality_mode == "non_deterministic"` — surface the `first_diff_path` to the user, name the leaf that differs, offer two paths: (a) supply `--equality-fn pkg.mod:fn` that tolerates the non-determinism, (b) bail. Never silently fall back to tolerance.
@@ -45,7 +46,7 @@ State you maintain across iterations:
 
 Per iteration:
 
-1. **Pick the next-slowest line** from the most recent JSON's `line_stats` (sorted by `pct` descending) that is not in `failed_lines` and whose `file` lives inside the dataset module's directory or sibling modules in the same top-level package. If the slowest line is outside this scope (a `--profile-scope=package` artifact, e.g., a third-party helper), note it and skip to the next.
+1. **Pick the next-slowest line** from the most recent JSON's `line_stats` (sorted by `pct` descending) that is not in `failed_lines` and whose `file` lives inside the dataset module's directory or sibling modules in the same top-level package. If the slowest line is outside this scope (a `--profile-scope=package` artifact, e.g., a third-party helper), add it to `failed_lines` (so it's not re-picked next iteration) and skip to the next.
 2. **Termination checks:**
    - If the targeted line's `pct` < 5% → stop (diminishing returns).
    - If `consecutive_failures >= 3` → stop.
@@ -60,7 +61,7 @@ Per iteration:
    - remove a redundant `.copy()` or `.contiguous()`
    - pre-tokenize / pre-resize at dataset init time
 5. **Apply the edit** (single Edit tool call). Do NOT commit yet.
-6. **Run** `python scripts/profile_getitem.py measure --factory <factory> --baseline-dir .getitem-profile/ --profile-scope <scope> --num-workers <W>`. Read the new `measure-N.json`.
+6. **Run** `python scripts/profile_getitem.py measure --factory <factory> --baseline-dir .getitem-profile/ --profile-scope <scope> --num-workers <W> --bench-batches <B>`. Read the new `measure-N.json`. Pass the SAME `<B>` you used for `baseline`.
 7. **Decision** — use `delta_vs_prev_accepted.per_call_speedup_x`:
    - **Equality failed** → `git restore <changed_file>`. Add the line to `failed_lines`. `consecutive_failures += 1`.
    - **Equality passed but speedup < 1.05×** → same `git restore` path. Smaller wins are noise.
@@ -77,7 +78,7 @@ After each accepted edit, append to `.getitem-profile/session.md`:
 - commit: <short SHA>
 ```
 
-Append rejected attempts under a separate `## Rejected` section: target line + brief reason.
+Append rejected attempts under a separate `## Rejected` section, one bullet each: `- <file>:<line> — <reason>` (so resumption can parse them back into `failed_lines`).
 
 ## Hard rules
 
@@ -108,4 +109,4 @@ When the loop terminates (any condition), print:
 
 ## Resumption
 
-If a session is interrupted and the user re-invokes the skill: detect an existing `.getitem-profile/` dir + `getitem-profile/...` branch; read `session.md` to recover `failed_lines` and `accepted_commits`; resume the loop without re-baselining. The cached outputs in `.getitem-profile/baseline/` and `baseline.json` remain authoritative.
+If a session is interrupted and the user re-invokes the skill: detect an existing `.getitem-profile/` dir + `getitem-profile/...` branch; recover `accepted_commits` from `git log` on the side branch and `failed_lines` from the `## Rejected` bullets in `session.md`; resume the loop without re-baselining. The cached outputs in `.getitem-profile/baseline/` and `baseline.json` remain authoritative.
