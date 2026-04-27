@@ -303,6 +303,129 @@ def cmd_baseline(args) -> int:
     return 0
 
 
+def _next_measure_path(out_dir: Path) -> Path:
+    n = 1
+    while (out_dir / f"measure-{n}.json").exists():
+        n += 1
+    return out_dir / f"measure-{n}.json"
+
+
+def _latest_accepted_measure(out_dir: Path) -> dict | None:
+    """Return the most recent measure-N.json with equality.passed == true, or None."""
+    files = sorted(out_dir.glob("measure-*.json"),
+                   key=lambda p: int(p.stem.split("-")[1]),
+                   reverse=True)
+    for f in files:
+        try:
+            data = json.loads(f.read_text())
+        except (json.JSONDecodeError, OSError):
+            continue
+        if data.get("equality", {}).get("passed") is True:
+            return data
+    return None
+
+
+def _compute_delta(curr_mean: float, curr_bench_bps: float,
+                   ref_mean: float, ref_bench_bps: float) -> dict:
+    return {
+        "per_call_speedup_x": (ref_mean / curr_mean) if curr_mean > 0 else 0.0,
+        "dataloader_speedup_x": (curr_bench_bps / ref_bench_bps) if ref_bench_bps > 0 else 0.0,
+    }
+
+
+def cmd_measure(args) -> int:
+    baseline_dir = Path(args.baseline_dir)
+    baseline_path = baseline_dir / "baseline.json"
+    if not baseline_path.exists():
+        print(f"baseline.json not found at {baseline_path}", file=sys.stderr)
+        return 2
+    baseline = json.loads(baseline_path.read_text())
+    if baseline.get("equality_mode") == "non_deterministic":
+        print("baseline is non-deterministic; cannot measure", file=sys.stderr)
+        return 2
+
+    factory = load_factory(args.factory)
+    dataset = factory()
+
+    indices = baseline["indices"]
+    seed_base = baseline["seed_base"]
+
+    measure_path = _next_measure_path(baseline_dir)
+
+    # Equality check (fail-fast: bail at first mismatch or exception).
+    per_call_times: list[float] = []
+    for i in indices:
+        try:
+            seed_all(seed_base + i)
+            t0 = time.perf_counter()
+            out = dataset[i]
+            dt = time.perf_counter() - t0
+        except Exception as e:  # noqa: BLE001
+            payload = {
+                "equality": {
+                    "passed": False,
+                    "first_diff_path": f"outputs[{i}]",
+                    "summary": f"raised {type(e).__name__}: {e}",
+                },
+            }
+            measure_path.write_text(json.dumps(payload, indent=2))
+            return 0
+        with open(baseline_dir / "baseline" / f"{i}.pkl", "rb") as f:
+            cached = pickle.load(f)
+        ok, diff_path, summary = deep_equal(out, cached, _path=f"outputs[{i}]")
+        if not ok:
+            payload = {
+                "equality": {"passed": False, "first_diff_path": diff_path, "summary": summary},
+            }
+            measure_path.write_text(json.dumps(payload, indent=2))
+            return 0
+        per_call_times.append(dt)
+
+    # Equality passed → re-profile + bench.
+    line_stats = run_line_profiler(dataset, indices, seed_base, args.profile_scope)
+
+    bench_dataset = factory()
+    try:
+        bench = run_dataloader_bench(
+            bench_dataset, args.num_workers, args.batch_size, args.bench_batches
+        )
+    except Exception as e:  # noqa: BLE001
+        payload = {
+            "equality": {
+                "passed": False,
+                "first_diff_path": "<dataloader>",
+                "summary": f"dataloader bench raised {type(e).__name__}: {e}",
+            },
+        }
+        measure_path.write_text(json.dumps(payload, indent=2))
+        return 0
+
+    mean_per_call = sum(per_call_times) / len(per_call_times)
+    baseline_mean = baseline["per_call_wall_time_s"]["mean"]
+    baseline_bps = baseline["dataloader_bench"]["batches_per_sec"]
+
+    prev = _latest_accepted_measure(baseline_dir)
+    if prev:
+        prev_mean = prev["per_call_wall_time_s"]["mean"]
+        prev_bps = prev["dataloader_bench"]["batches_per_sec"]
+    else:
+        prev_mean = baseline_mean
+        prev_bps = baseline_bps
+
+    payload = {
+        "equality": {"passed": True},
+        "per_call_wall_time_s": {"mean": mean_per_call, "indices": per_call_times},
+        "delta_vs_baseline": _compute_delta(mean_per_call, bench["batches_per_sec"],
+                                            baseline_mean, baseline_bps),
+        "delta_vs_prev_accepted": _compute_delta(mean_per_call, bench["batches_per_sec"],
+                                                 prev_mean, prev_bps),
+        "line_stats": line_stats,
+        "dataloader_bench": bench,
+    }
+    measure_path.write_text(json.dumps(payload, indent=2))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="profile_getitem.py")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -320,8 +443,13 @@ def main(argv: list[str] | None = None) -> int:
     p_b.set_defaults(func=cmd_baseline)
 
     p_m = sub.add_parser("measure")
-    # Filled in by Task 3.
-    p_m.set_defaults(func=lambda a: (print("not yet implemented", file=sys.stderr), 1)[1])
+    p_m.add_argument("--factory", required=True)
+    p_m.add_argument("--baseline-dir", required=True)
+    p_m.add_argument("--profile-scope", choices=["local", "package"], default="local")
+    p_m.add_argument("--num-workers", type=int, default=4)
+    p_m.add_argument("--batch-size", type=int, default=16)
+    p_m.add_argument("--bench-batches", type=int, default=50)
+    p_m.set_defaults(func=cmd_measure)
 
     args = parser.parse_args(argv)
     return args.func(args)
