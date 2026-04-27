@@ -6,7 +6,9 @@
 
 **Architecture:** The skill is a markdown orchestration prompt (`SKILL.md`) that drives a greedy edit loop, plus a single-file Python harness (`scripts/profile_getitem.py`) that owns all measurement work. The harness exposes two subcommands — `baseline` (cache outputs + record starting timings) and `measure` (re-run cached indices, equality-check, re-profile, compute deltas) — each printing JSON. The skill never touches the user's dataset directly; it only invokes the harness and reads JSON.
 
-**Tech Stack:** Python 3.10+, `line_profiler` (programmatic API: `LineProfiler.add_class` + `add_module` with `ScopingPolicy.LOCAL`, NOT `kernprof`/`autoprofile.run`), `torch`, `numpy`, `PIL`, `pickle`. The user's environment is assumed to have these — the harness imports them directly. Markdown with YAML frontmatter for `SKILL.md`.
+**Tech Stack:** Python 3.10+, `line_profiler` 5.x (programmatic API: `LineProfiler.add_class` + `add_module` with `ScopingPolicy.CHILDREN`, NOT `kernprof`/`autoprofile.run`), `torch`, `numpy`, `PIL`, `pickle`. The user's environment is assumed to have these — the harness imports them directly. Markdown with YAML frontmatter for `SKILL.md`.
+
+**Environment for running verify blocks:** This repo's torch venv is `/u/jschmidt3/autoresearch/.venv/bin/python` (system `python3` lacks torch). All `python3` references in verify blocks below should be substituted with that interpreter. Install missing deps via `uv pip install <pkg> --python /u/jschmidt3/autoresearch/.venv/bin/python`.
 
 **Spec:** `docs/superpowers/specs/2026-04-26-getitem-profiler-design.md` is the source of truth for any detail not spelled out in this plan.
 
@@ -482,7 +484,8 @@ assert b['reliable_line_stats'] is True
 assert len(b['indices']) == 4
 top = sorted(b['line_stats'], key=lambda x: x['pct'], reverse=True)[0]
 assert top['pct'] > 50, f'expected hotspot >50%, got {top}'
-assert 'for j in range' in top['code'] or 'for i in range' in top['code'], top
+# Top hotspot is the per-pixel loop *body*; the for-headers will rank lower.
+assert 'arr[i, j]' in top['code'] or 'out[i, j]' in top['code'], top
 assert all(pathlib.Path(f'/tmp/getitem-profile-test/baseline/{i}.pkl').exists() for i in range(4))
 print('OK strict')
 " && \
@@ -560,15 +563,15 @@ def run_line_profiler(dataset, indices: list[int], seed_base: int, profile_scope
     prof = LineProfiler()
     cls = type(dataset)
     mod = sys.modules[cls.__module__]
-    prof.add_class(cls, scoping_policy=ScopingPolicy.LOCAL, wrap=True)
-    prof.add_module(mod, scoping_policy=ScopingPolicy.LOCAL, wrap=True)
+    prof.add_class(cls, scoping_policy=ScopingPolicy.CHILDREN, wrap=True)
+    prof.add_module(mod, scoping_policy=ScopingPolicy.CHILDREN, wrap=True)
     if profile_scope == "package":
         top = cls.__module__.split(".")[0]
         for name, m in list(sys.modules.items()):
             if name == cls.__module__:
                 continue
             if (name == top or name.startswith(top + ".")) and m is not None:
-                prof.add_module(m, scoping_policy=ScopingPolicy.LOCAL, wrap=True)
+                prof.add_module(m, scoping_policy=ScopingPolicy.CHILDREN, wrap=True)
 
     prof.enable_by_count()
     try:
