@@ -31,7 +31,7 @@ Then:
 3. Run `python scripts/profile_getitem.py baseline --factory <factory> --num-indices <N> --profile-scope <scope> --num-workers <W> --bench-batches <B> --out-dir .getitem-profile/`.
 4. Read `.getitem-profile/baseline.json`.
 5. Bail if either:
-   - `equality_mode == "non_deterministic"` — surface the `first_diff_path` to the user, name the leaf that differs, offer two paths: (a) supply `--equality-fn pkg.mod:fn` that tolerates the non-determinism, (b) bail. Never silently fall back to tolerance.
+   - `equality_mode == "non_deterministic"` — surface the `first_diff_path` to the user, name the leaf that differs, and bail. The harness is strict-equality only. The user's options are: (a) seed any non-standard randomness sources in `__init__` so `torch.manual_seed`/`np.random.seed`/`random.seed` cover the call, then re-run; (b) wrap the dataset in a deterministic shim and point `--factory` at the shim; (c) accept that this dataset isn't a candidate for the harness.
    - `reliable_line_stats == false` — tell the user the dataset is already fast (mean per-call < ~1 ms); wins here would be in the noise.
 6. Otherwise, show the user a brief table of the top-5 slowest lines + the baseline DataLoader throughput so they know the starting point.
 
