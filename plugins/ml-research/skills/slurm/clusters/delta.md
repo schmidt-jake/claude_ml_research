@@ -2,7 +2,7 @@
 
 Site-specific reference for the NCSA Delta cluster. Read alongside the generic SLURM guidance in this skill's `SKILL.md`.
 
-Account: `bdhi-delta-gpu`
+Delta allocations follow the pattern `<project-code>-delta-gpu` (for GPU access) and `<project-code>-delta-cpu` (for CPU-only access). Check the user's allocations with `accounts` or `mychpc usage`; ask them which account to charge if unclear.
 
 You have access to the `gnodes` and `jobinfo` executables provided by [slurm-utils](https://github.com/birc-aeh/slurm-utils/tree/master).
 
@@ -74,7 +74,7 @@ squeue -u "$USER" -o "%.10i %.12P %.8T %.10r %.10Q %.20S"      # job state, reas
 sprio -j <jobid> -l                                             # factor breakdown
 ```
 
-A `FairShare` score below ~0.2 means you're over-using and jobs will queue behind other users in `bdhi-delta-gpu`. Because decay half-life is 1 day, this self-corrects after roughly a day of lighter activity — it isn't a long-term penalty.
+A `FairShare` score below ~0.2 means you're over-using and jobs will queue behind other users in your account. Because decay half-life is 1 day, this self-corrects after roughly a day of lighter activity — it isn't a long-term penalty.
 
 Priority levers ranked by leverage, best to worst:
 
@@ -95,8 +95,8 @@ Age and QOS are not useful levers here.
 | WORK (NVME) | `/work/nvme/<code>` | By request | No | Many small-file I/O workloads. |
 | /tmp | Node-local SSD | 1.5 TB (GPU nodes) | After each job | Fast temporary storage. Not shared across nodes. |
 
-Our data directory: `/work/hdd/bdhi/$USER/data/`
-Job scratch pattern: `/work/hdd/bdhi/$USER/$SLURM_JOB_ID/` (set as `$TMPDIR` in sbatch scripts)
+Conventional data directory: `/work/hdd/<project-code>/$USER/data/`
+Conventional job scratch pattern: `/work/hdd/<project-code>/$USER/$SLURM_JOB_ID/` (set as `$TMPDIR` in sbatch scripts)
 
 ## Multi-node networking
 

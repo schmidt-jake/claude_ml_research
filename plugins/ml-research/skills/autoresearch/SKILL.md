@@ -7,10 +7,7 @@ Goal: iterate autonomously and indefinitely on model architecture, data augmenta
 
 ## Scope
 
-You may change architecture, data augmentation, training loop, objective function, hyperparameters, etc. Key code paths:
-
-- `metabolo_genes/models/single_cell.py` (architecture, training loop, objective)
-- `metabolo_genes/data/single_cell.py` (data augmentation)
+You may change architecture, data augmentation, training loop, objective function, hyperparameters, etc. At the start of each session, identify the project's model and data modules (confirm with the user if ambiguous) — typically the `LightningModule` subclass referenced by `config/conf.yaml`'s `model.class_path` and the data-augmentation code in the corresponding `LightningDataModule`.
 
 **Do not** modify:
 
@@ -31,13 +28,21 @@ All work happens in a dedicated worktree at `../autoresearch` (`git worktree add
 
 ## Procedure
 
-Each experiment runs on a single A100 for up to 45 min via `${CLAUDE_SKILL_DIR}/scripts/launch.sbatch`. The launch script sets `config/conf.yaml` as the base; the caller must layer `${CLAUDE_SKILL_DIR}/config.yaml` on top (1 epoch, no checkpointing, reduced val batches, 30-min timer, W&B `autoresearch` tag). Override further with additional CLI args (later `--config=` values override earlier ones):
+Each experiment runs on a single A100 for up to 45 min via `${CLAUDE_SKILL_DIR}/scripts/launch.sbatch`. The launch script sets `config/conf.yaml` as the base; the caller layers `${CLAUDE_SKILL_DIR}/config.yaml` on top (1 epoch, reduced val batches, 30-min timer, learning-rate monitor). The script reads two caller-supplied values (nothing is hardcoded to a specific project):
+
+- `--account=...` on the sbatch CLI — the SLURM account to charge (e.g. `<project>-delta-gpu` on Delta).
+- `AUTORESEARCH_SCRATCH_ROOT` env var — per-user scratch root; the job creates `$AUTORESEARCH_SCRATCH_ROOT/$SLURM_JOB_ID` as its working dir and exports it as `$TMPDIR`.
+
+Any data paths, model overrides, or logger settings are passed as additional CLI args after the config (later `--config=` values override earlier ones). Export `AUTORESEARCH_SCRATCH_ROOT` once per shell (e.g. in `~/.bashrc`) so you don't re-supply it each submit:
 
 ```bash
-sbatch "${CLAUDE_SKILL_DIR}/scripts/launch.sbatch" \
+sbatch --account=<slurm-account> \
+  "${CLAUDE_SKILL_DIR}/scripts/launch.sbatch" \
   --config="${CLAUDE_SKILL_DIR}/config.yaml" \
   --model.lr=3e-4
 ```
+
+To tag experiments launched via this skill (recommended, makes them filterable in your tracker), append `--trainer.logger.init_args.tags+=[autoresearch]` — or whatever syntax your logger/jsonargparse combination uses for list-append.
 
 Run `uv run harness fit --help` for docs on available overrides.
 
@@ -71,9 +76,10 @@ Each file has a single responsibility — do not duplicate information across fi
 3. Branch: `git checkout -b autoresearch/experiments/NNN-description`.
 4. Implement the changes.
 5. Verify param budget with `count_params.py`.
-6. Use the slurm skill to select the best partition, then submit:
+6. Use the slurm skill to select the best partition, then submit (assumes `AUTORESEARCH_SCRATCH_ROOT` is exported):
    ```sh
-   sbatch --partition=<selected> "${CLAUDE_SKILL_DIR}/scripts/launch.sbatch" \
+   sbatch --account=<account> --partition=<selected> \
+     "${CLAUDE_SKILL_DIR}/scripts/launch.sbatch" \
      --config="${CLAUDE_SKILL_DIR}/config.yaml" \
      --trainer.logger.init_args.name="$(git branch --show-current)" \
      --trainer.logger.init_args.notes="One-sentence summary of the change"
