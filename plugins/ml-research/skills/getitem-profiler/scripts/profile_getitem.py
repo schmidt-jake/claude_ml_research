@@ -188,9 +188,9 @@ def run_line_profiler(dataset, indices: list[int], seed_base: int, profile_scope
                 "hits": hits,
                 "time_s": time_s,
             })
-    total = sum(r["time_s"] for r in rows) or 1.0
+    total = sum(r["time_s"] for r in rows)
     for r in rows:
-        r["pct"] = round(100.0 * r["time_s"] / total, 2)
+        r["pct"] = round(100.0 * r["time_s"] / total, 2) if total > 0 else 0.0
     rows.sort(key=lambda r: r["time_s"], reverse=True)
     return rows
 
@@ -206,7 +206,6 @@ def run_dataloader_bench(dataset, num_workers: int, batch_size: int, batches: in
     )
     timings: list[float] = []
     it = iter(loader)
-    # Warmup batch
     try:
         next(it)
     except StopIteration:
@@ -271,7 +270,6 @@ def cmd_baseline(args) -> int:
         per_call_times.append(dt)
         cached_outputs.append(out_a)
 
-    # Cache outputs.
     for i, out in zip(indices, cached_outputs):
         with open(out_dir / "baseline" / f"{i}.pkl", "wb") as f:
             pickle.dump(out, f)
@@ -279,10 +277,10 @@ def cmd_baseline(args) -> int:
     mean_per_call = sum(per_call_times) / len(per_call_times)
     reliable = mean_per_call >= RELIABLE_LINE_STATS_THRESHOLD_S
 
-    # Line profiler.
     line_stats = run_line_profiler(dataset, indices, seed_base, args.profile_scope)
 
-    # DataLoader bench. (Re-instantiate so workers don't share state from above.)
+    # Fresh dataset for the bench: line_profiler may have wrapped methods on the
+    # one above; rebuilding via the factory gets a clean object for measurement.
     bench_dataset = factory()
     bench = run_dataloader_bench(
         bench_dataset, args.num_workers, args.batch_size, args.bench_batches
