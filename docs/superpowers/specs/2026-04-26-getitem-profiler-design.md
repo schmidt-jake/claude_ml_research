@@ -96,6 +96,7 @@ Written by `profile_getitem.py baseline`. Read by the skill once at session star
 Written by `profile_getitem.py measure`. `N` auto-increments per session. Read by the skill after each edit.
 
 Success path:
+
 ```json
 {
   "equality": {"passed": true},
@@ -110,6 +111,7 @@ Success path:
 `delta_vs_baseline` is the cumulative speedup since session start (informational, surfaced in the final summary). `delta_vs_prev_accepted` is the marginal speedup of *this* edit over the most recent accepted state — this is what the skill's accept/reject decision uses. The harness reads the most recent `measure-N.json` with `equality.passed == true` to compute `delta_vs_prev_accepted`; if no prior accepted measurement exists, "previous accepted" is the baseline.
 
 Equality-failed path:
+
 ```json
 {
   "equality": {
@@ -184,6 +186,7 @@ After termination: print a final summary (starting per-call time, ending per-cal
 3. **Cache outputs:** pickle each output to `<out-dir>/baseline/<i>.pkl`.
 4. **Per-call wall time:** time each `dataset[i]` call (also under seed reset), record mean + per-index list. If mean < ~1 ms, set `reliable_line_stats: false`.
 5. **Line profiling** — programmatic API (NOT `autoprofile.run` / `kernprof`):
+
    ```python
    from line_profiler import LineProfiler
    from line_profiler.scoping_policy import ScopingPolicy
@@ -203,6 +206,7 @@ After termination: print a final summary (starting per-call time, ending per-cal
    prof.disable_by_count()
    stats = prof.get_stats()
    ```
+
    `add_class` walks methods defined on the class. `add_module` picks up module-level helpers. `ScopingPolicy.LOCAL` keeps the profiler from recursing into third-party imports. `wrap=True` replaces methods so calls through the C-level `__getitem__` slot still hit the profiler.
 6. **DataLoader benchmark:** wrap the dataset in `DataLoader(batch_size=B, num_workers=W)`, iterate `bench-batches` batches, drop the first batch (worker-warmup), record batches/sec + mean batch latency.
 7. Write `baseline.json`.
