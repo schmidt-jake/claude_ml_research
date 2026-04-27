@@ -312,9 +312,12 @@ def _next_measure_path(out_dir: Path) -> Path:
 
 def _latest_accepted_measure(out_dir: Path) -> dict | None:
     """Return the most recent measure-N.json with equality.passed == true, or None."""
-    files = sorted(out_dir.glob("measure-*.json"),
-                   key=lambda p: int(p.stem.split("-")[1]),
-                   reverse=True)
+    numbered: list[tuple[int, Path]] = []
+    for p in out_dir.glob("measure-*.json"):
+        suffix = p.stem.removeprefix("measure-")
+        if suffix.isdigit():
+            numbered.append((int(suffix), p))
+    files = [p for _, p in sorted(numbered, key=lambda t: t[0], reverse=True)]
     for f in files:
         try:
             data = json.loads(f.read_text())
