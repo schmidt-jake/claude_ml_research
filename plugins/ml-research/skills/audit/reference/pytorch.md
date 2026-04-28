@@ -31,11 +31,37 @@ TORCH_LOGS=graph_breaks,recompiles python script.py
 TORCH_TRACE=/tmp/trace python script.py && tlparse /tmp/trace
 ```
 
+**Debugging Inductor lowering failures (`LoweringException`, codegen crashes):**
+
+Isolate the failing stage by swapping the backend — `eager` exercises Dynamo only, `aot_eager` adds AOTAutograd, `inductor` adds lowering + codegen. The first one that fails localizes the bug:
+
+```python
+torch.compile(model, backend="eager")       # Dynamo (graph capture)
+torch.compile(model, backend="aot_eager")   # + AOTAutograd (autograd tracing)
+torch.compile(model, backend="inductor")    # + Inductor lowering / codegen
+```
+
+```bash
+TORCH_COMPILE_DEBUG=1 python script.py   # dumps torch_compile_debug/<run>/ with output code, IR, FX graph
+TORCH_LOGS=+inductor python script.py    # detailed lowering + scheduling logs
+TORCH_LOGS=aot_graphs python script.py   # FX graph handed to Inductor
+```
+
+```python
+torch._dynamo.list_backends()    # enumerate registered + debug-only backends
+torch._dynamo.reset()            # drop in-process compile cache before re-running
+# rm -rf /tmp/torchinductor_*    # nuke on-disk Inductor cache when artifacts are stuck
+```
+
+On `LoweringException`, read the traceback for the offending ATen op and grep `torch/_inductor/lowering.py` to confirm whether it has a registered lowering; reset the cache before re-running so you are not debugging a stale artifact.
+
 **Citations:**
 
 - https://pytorch.org/docs/stable/torch.compiler_troubleshooting.html
 - https://pytorch.org/docs/stable/generated/torch.compile.html
 - https://github.com/meta-pytorch/tlparse
+- https://pytorch.org/tutorials/intermediate/inductor_debug_cpu.html
+- https://github.com/pytorch/pytorch/blob/main/torch/_inductor/lowering.py
 
 ---
 
@@ -156,6 +182,7 @@ Each pass listed here is a candidate for `audit-dynamic` to run when its applica
 | `dynamo_explain` | `torch._dynamo.explain(model)(*ex)` | graph breaks, reasons, suggested fixes | https://pytorch.org/docs/stable/torch.compiler_troubleshooting.html |
 | `compile_logs` | `TORCH_LOGS=graph_breaks,recompiles python harness.py` | recompilation triggers, dynamic-shape misses | https://pytorch.org/docs/stable/logging.html |
 | `trace_tlparse` | `TORCH_TRACE=/tmp/t python harness.py && tlparse /tmp/t` | full compile timeline, kernel fusions missed | https://github.com/meta-pytorch/tlparse |
+| `inductor_debug` | `TORCH_COMPILE_DEBUG=1 python harness.py` (and `TORCH_LOGS=+inductor,aot_graphs`); on failure, bisect with `backend="eager" / "aot_eager" / "inductor"` | Inductor lowering / codegen failures, `LoweringException`, post-AOT FX graph | https://pytorch.org/tutorials/intermediate/inductor_debug_cpu.html |
 | `anomaly` | `with torch.autograd.detect_anomaly(): loss.backward()` | NaN/inf in grad, in-place leaf modification | https://pytorch.org/docs/stable/autograd.html#debugging-and-anomaly-detection |
 | `profiler` | `with torch.profiler.profile(...) as p: ... ; p.key_averages().table(...)` | top ops by self-CUDA time, host↔device syncs | https://pytorch.org/docs/stable/profiler.html |
 | `memory` | `torch.cuda.memory._record_memory_history()` then `_dump_snapshot(path)` | allocator fragmentation, peak allocations, leaks | https://pytorch.org/docs/stable/torch_cuda_memory.html |
