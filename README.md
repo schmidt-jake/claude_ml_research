@@ -11,6 +11,7 @@ Skills bundle for HPC-based ML research:
 - **`slurm`** — Submit, monitor, and debug SLURM jobs; pick partitions; tune batch size; diagnose OOM/timeout/node errors. Auto-detects the cluster via `scontrol` and loads the matching site reference from `slurm/clusters/` — ships with references for **NCSA Delta** (partitions, charge rates, `/work` vs `/projects`, account conventions) and **University of Utah CHPC** (account/partition/QOS triples, module system, scratch filesystems). Add another cluster by dropping a new file into `slurm/clusters/<name>.md` and updating the detection table in `slurm/SKILL.md`.
 - **`model-training`** — Staged pre-flight test procedure (code correctness → learnability → GPU efficiency → fault tolerance) to shake out a training loop before launching a full run.
 - **`autoresearch`** — Autonomous iteration on model architecture, data augmentation, and objective functions via rapid small-scale experiments.
+- **`audit`** — Audit a PyTorch codebase for trace/compile, numerical-stability, autograd, distributed, and perf anti-patterns. Surveys recent PyTorch releases for modernization opportunities (live web research). Optional `--dynamic` mode runs `torch._dynamo.explain`, `TORCH_TRACE`+`tlparse`, autograd anomaly mode, profiler, memory snapshot, and FLOP counter on a single forward/backward, then emits a categorized report.
 
 ## Install
 
@@ -54,7 +55,17 @@ ml_research/
 └── plugins/
     └── ml-research/
         ├── .claude-plugin/plugin.json
+        ├── agents/
+        │   ├── audit-modernize.md
+        │   ├── audit-dynamic.md
+        │   ├── autoresearch-experimenter.md
+        │   ├── autoresearch-ideator.md
+        │   └── autoresearch-reviewer.md
         └── skills/
+            ├── audit/
+            │   ├── SKILL.md
+            │   └── reference/
+            │       └── pytorch.md
             ├── autoresearch/
             ├── model-training/
             └── slurm/

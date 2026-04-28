@@ -1,6 +1,6 @@
 {
   "name": "ml-research",
-  "description": "Claude Code skills for ML research on HPC: SLURM job orchestration (with built-in references for NCSA Delta and University of Utah CHPC), training-loop verification, and autonomous research iteration.",
+  "description": "Claude Code skills for ML research on HPC: SLURM job orchestration (with built-in references for NCSA Delta and University of Utah CHPC), training-loop verification, autonomous research iteration, and PyTorch code audit.",
   "author": {
     "name": "Jake Schmidt",
     "email": "schmidt.jake.c@gmail.com"
@@ -13,10 +13,12 @@
     "hpc",
     "ml",
     "gpu",
+    "pytorch",
     "pytorch-lightning",
     "ncsa-delta",
     "chpc",
     "training",
-    "autoresearch"
+    "autoresearch",
+    "audit"
   ]
 }
