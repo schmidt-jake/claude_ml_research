@@ -60,11 +60,9 @@ The "CPUs/GPU break-even" column is the largest `--cpus-per-task` per GPU at whi
 
 The `Charge Factor` column in the partition table above is the *GPU-dominant* equivalent (1 SU = 1 A100·hour with GPU dominant; H200 charges 3× when GPU dominates). A job that over-requests CPU exceeds it.
 
-### ACCESS allocation accounting
+### ACCESS portal mapping
 
-ACCESS-portal "Delta GPU Hours" are denominated in A100 (`gpuA100x4`) GPU-hour equivalents: **1 ACCESS GPU-hour = 60,000 billing-units** (matches `gpuA100x4`'s `GRES/gpu=1000` × 60 min).
-
-Conversions (assuming GPU dominates):
+Delta is an ACCESS-governed cluster. See `clusters/access.md` for the general framework. Delta-specific conversion: ACCESS-portal "Delta GPU Hours" are normalized to A100 (`gpuA100x4`) GPU-hour equivalents — **1 ACCESS GPU-hour = 60,000 billing-units** (matches `gpuA100x4`'s `GRES/gpu=1000` × 60 min). Per-partition rates assuming GPU dominates:
 
 | Partition | ACCESS GPU-hours per wallclock-hour |
 |---|---:|
@@ -77,15 +75,6 @@ Conversions (assuming GPU dominates):
 | `gpuH200x8-interactive` | 6.0 |
 
 If CPU dominates, multiply CPU weight × cores × 60 ÷ 60,000 instead. Example: H200 with `--cpus-per-task=33` bills 33 × 250 × 60 = 495,000/hour = **8.25 ACCESS GPU-hours** per wallclock-hour, almost 3× the GPU-dominant rate.
-
-To check the project's QOS allocation:
-
-```bash
-sacctmgr show qos <qos> format=Name,GrpTRESMins   # cap, in billing-minutes
-sshare -A <account>                                # cluster-wide and per-user usage
-```
-
-Divide `GrpTRESMins=billing=...` by 60,000 to convert to ACCESS GPU-hours.
 
 ## Job priority on Delta
 

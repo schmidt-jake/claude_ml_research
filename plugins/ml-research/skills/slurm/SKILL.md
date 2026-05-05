@@ -22,6 +22,8 @@ scontrol show config | grep ClusterName
 
 If the cluster isn't in the table, proceed with the generic guidance below and explicitly note that site-specific details (partitions, charge rates, filesystem paths, account/QoS triples) are unknown — ask the user for a link to the cluster's user guide or have them paste `sinfo` output.
 
+If the cluster is part of NSF ACCESS (Delta, Anvil, Bridges-2, Expanse, Stampede3, FASTER, Jetstream2, etc.), also read `clusters/access.md` for the portal-allocation-to-billing-unit mapping that supplements the cluster's own reference file. Don't assume a generic SLURM cluster is ACCESS-governed.
+
 ## Partition selection
 
 Before submitting, survey the cluster state to pick the best partition and resource request. The goal is to jointly minimize expected time-to-start, time-to-completion, and total charge.
