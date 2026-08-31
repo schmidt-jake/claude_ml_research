@@ -23,8 +23,6 @@ You have access to the `gnodes` and `jobinfo` executables provided by [slurm-uti
 
 GPU interconnects: A40 nodes use PCIe Gen4 (no NVLink). Quad A100 nodes have NV4 (4-way NVLink). Octa A100 nodes have NV12. H200 nodes have NV18. More NVLink = faster multi-GPU communication within a node.
 
-Service unit (SU) = 1 GPU-hour. Each GPU comes bundled with 16 cores and ~62.5 GB RAM (quad nodes) or 250 GB RAM (octa nodes). Charges are based on whichever fraction is larger: GPUs requested or memory requested.
-
 Default wall-clock if unspecified: 30 min. Default memory per core: 1000 MB.
 
 Preempt queues guarantee a minimum 10 min run (PreemptExemptTime) plus 5 min grace if SIGTERM is handled.
@@ -36,6 +34,47 @@ Preempt queues guarantee a minimum 10 min run (PreemptExemptTime) plus 5 min gra
 - **A100x8** for large models needing >4 GPUs or >256 GB RAM. 1.5x charge factor.
 - **H200x8** for maximum throughput. 141 GB HBM3e per GPU eliminates most OOM issues. 3.0x charge factor — use only when the speedup justifies the cost.
 - **Preempt variants** at half charge are worth using for any fault-tolerant workload with checkpointing.
+
+## TRES billing rates on Delta
+
+Delta sets `PriorityFlags=MAX_TRES` (verify with `scontrol show config | grep PriorityFlags`), so a job's billing rate is determined by its **single dominant TRES**, not the sum. See SKILL.md's "TRES billing rates" section for the general framework.
+
+Per-partition `TRESBillingWeights`, in billing-units per minute (from `scontrol show partition`):
+
+| Partition | CPU | Mem | GRES/gpu | CPUs/GPU break-even |
+|---|---:|---:|---:|---:|
+| `gpuA40x4` | 31.25 | 8G | 500 | 16 |
+| `gpuA40x4-preempt` | 15.625 | 4G | 250 | 16 |
+| `gpuA40x4-interactive` | 62.5 | 16G | 1000 | 16 |
+| `gpuA100x4` | 62.5 | 16G | 1000 | 16 |
+| `gpuA100x4-preempt` | 31.25 | 8G | 500 | 16 |
+| `gpuA100x4-interactive` | 125 | 32G | 2000 | 16 |
+| `gpuA100x8` | 93.75 | 6G | 1500 | 16 |
+| `gpuA100x8-interactive` | 187.5 | 12G | 3000 | 16 |
+| `gpuH200x8` | 250 | 12G | 3000 | **12** |
+| `gpuH200x8-interactive` | 500 | 24G | 6000 | **12** |
+| `gpuMI100x8` | 15.625 | 1G | 250 | 16 |
+| `gpuMI100x8-interactive` | 31.25 | 2G | 500 | 16 |
+
+The "CPUs/GPU break-even" column is the largest `--cpus-per-task` per GPU at which GPU still dominates over CPU (= `GRES/gpu ÷ CPU`). Above it, CPU dominates and the rate scales with cores instead of GPUs. **The H200 partitions break even at 12, not 16** — even though each node has 96 cores / 8 GPUs = 12 cores/GPU available, the bundled-cores ratio matches the billing break-even, so requesting all 12 cores is the sweet spot. Memory weights are loose enough on every partition (per-GPU break-even is in the multi-TB range) that memory effectively never dominates on Delta.
+
+The `Charge Factor` column in the partition table above is the *GPU-dominant* equivalent (1 SU = 1 A100·hour with GPU dominant; H200 charges 3× when GPU dominates). A job that over-requests CPU exceeds it.
+
+### ACCESS portal mapping
+
+Delta is an ACCESS-governed cluster. See `clusters/access.md` for the general framework. Delta-specific conversion: ACCESS-portal "Delta GPU Hours" are normalized to A100 (`gpuA100x4`) GPU-hour equivalents — **1 ACCESS GPU-hour = 60,000 billing-units** (matches `gpuA100x4`'s `GRES/gpu=1000` × 60 min). Per-partition rates assuming GPU dominates:
+
+| Partition | ACCESS GPU-hours per wallclock-hour |
+|---|---:|
+| `gpuA40x4` | 0.5 |
+| `gpuA40x4-preempt` | 0.25 |
+| `gpuA100x4` | 1.0 |
+| `gpuA100x4-preempt` | 0.5 |
+| `gpuA100x8` | 1.5 |
+| `gpuH200x8` | **3.0** |
+| `gpuH200x8-interactive` | 6.0 |
+
+If CPU dominates, multiply CPU weight × cores × 60 ÷ 60,000 instead. Example: H200 with `--cpus-per-task=33` bills 33 × 250 × 60 = 495,000/hour = **8.25 ACCESS GPU-hours** per wallclock-hour, almost 3× the GPU-dominant rate.
 
 ## Job priority on Delta
 

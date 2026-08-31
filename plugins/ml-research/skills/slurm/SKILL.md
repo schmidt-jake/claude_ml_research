@@ -22,6 +22,8 @@ scontrol show config | grep ClusterName
 
 If the cluster isn't in the table, proceed with the generic guidance below and explicitly note that site-specific details (partitions, charge rates, filesystem paths, account/QoS triples) are unknown — ask the user for a link to the cluster's user guide or have them paste `sinfo` output.
 
+If the cluster is part of NSF ACCESS (Delta, Anvil, Bridges-2, Expanse, Stampede3, FASTER, Jetstream2, etc.), also read `clusters/access.md` for the portal-allocation-to-billing-unit mapping that supplements the cluster's own reference file. Don't assume a generic SLURM cluster is ACCESS-governed.
+
 ## Partition selection
 
 Before submitting, survey the cluster state to pick the best partition and resource request. The goal is to jointly minimize expected time-to-start, time-to-completion, and total charge.
@@ -42,7 +44,63 @@ Key trade-offs:
 - **Preemptible partitions** typically have half the charge factor of their non-preemptible counterparts and shorter queue wait, but jobs can be preempted. Use for fault-tolerant workloads with checkpointing enabled.
 - **Interactive partitions** have shorter max durations (often 1 hr) and higher charge factors, but may have shorter wait times. Use only for debugging and quick iteration.
 - **GPU generation**: all else equal, prefer newer GPUs (Blackwell > Hopper > Ampere > Turing > Volta > Pascal) and more GPUs per node to reduce communication overhead. But if the cluster is busy, requesting fewer GPUs on an available partition may start sooner.
-- **Charge factors**: compare the effective cost by multiplying SUs by the partition's charge factor. A preemptible run at 0.5x that takes 1.2x as long (due to one preemption) is still cheaper.
+- **Billing rates**: the partition-level "charge factor" cited in cluster docs is shorthand for `TRESBillingWeights` (see next section). Effective cost depends on what the job actually requests, not just on which partition it lands in.
+
+## TRES billing rates
+
+A job's billing rate (the rate at which it consumes the project's allocation, expressed in billing-units per minute) is computed from the partition's `TRESBillingWeights` and the resources the job requests. Charge factors quoted in cluster documentation assume the job hits the "intended" shape for that partition — when it doesn't, the actual rate diverges, sometimes dramatically.
+
+```bash
+# The per-resource billing weights for a partition.
+scontrol show partition <p> | grep -E 'PartitionName|TRESBillingWeights'
+
+# How weights are combined.
+scontrol show config | grep PriorityFlags
+
+# What the scheduler actually computed for a specific job.
+scontrol show job <jobid> | grep -E 'ReqTRES|AllocTRES'   # the billing= field is the rate per minute
+```
+
+How weights combine depends on `PriorityFlags`:
+
+- `MAX_TRES` set: billing rate = max(weighted CPU, weighted Mem, weighted GPU). The job pays for whichever single TRES dominates; non-dominant requests are effectively free.
+- Default (no `MAX_TRES`): billing rate = sum of all weighted contributions. Every requested unit costs.
+
+Always check which mode applies before reasoning about cost.
+
+### Reading TRESBillingWeights
+
+A weight like `TRESBillingWeights=CPU=250, Mem=12G, GRES/gpu=3000` specifies billing-units per minute per resource:
+
+- `CPU=250` — 250 billing-units per CPU per minute.
+- `GRES/gpu=3000` — 3000 billing-units per GPU per minute.
+- `Mem=12G` — 1 billing-unit per **12 GB** of memory per minute. The size suffix on memory weights sets the *divisor*, not the multiplier; without a suffix, the value is per-MB. Read the suffix carefully.
+
+### Worked example (MAX_TRES)
+
+Partition with `TRESBillingWeights=CPU=250, Mem=12G, GRES/gpu=3000`, job requesting `cpu=33, mem=240G, gres/gpu=1`:
+
+| Resource | Computation | Billing/min |
+|---|---|---:|
+| CPU | 33 × 250 | **8250 ← dominant** |
+| GPU | 1 × 3000 | 3000 |
+| Mem | 240 / 12 | 20 |
+
+Billing rate = 8250/min — driven entirely by CPU. The GPU is "free" because it doesn't dominate. Same shape under SUM mode would bill at 8250 + 3000 + 20 = 11,270/min. Confirm by reading `billing=` in `scontrol show job`.
+
+### Right-sizing the request
+
+Under MAX_TRES, the leverage point is the dominant TRES — trim *that one* until another TRES takes over; cuts to non-dominant resources don't change billing. Under SUM, trim whichever requests are most over-provisioned.
+
+For a single-GPU job to make GPU the dominant TRES (and so cap the per-hour rate at the partition's GPU weight):
+- `cpus-per-task ≤ GRES/gpu_weight ÷ CPU_weight`
+- `mem ≤ GRES/gpu_weight × Mem_suffix_GB` (e.g. `Mem=12G` → up to `3000 × 12 = 36000 GB`)
+
+Above those thresholds you're paying for CPU or memory, not the GPU. Whether shrinking CPUs hurts dataloader throughput is a separate empirical question — verify with a short profiling run before committing to a smaller request.
+
+### Why this matters for QOSGrpBillingMinutes
+
+`AssocGrpBillingMinutes` / `QOSGrpBillingMinutes` quotas are denominated in the same billing-units. When `squeue` shows `Reason=QOSGrpBillingMinutes`, the scheduler has projected `billing_rate × TimeLimit` against the remaining quota and refused to start the job. Lowering the *dominant* request (under MAX_TRES) or shortening `--time` may unblock it; cutting non-dominant requests will not.
 
 ## Understanding job priority
 

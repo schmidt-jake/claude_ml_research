@@ -37,6 +37,29 @@ Run `sacctmgr -p -n show assoc user=$USER format=cluster,account,partition` to s
 
 Preemptable partitions (`*-guest`, `*-freecycle`) can be killed at any time — only use for restartable/checkpointed work and set `--requeue` if appropriate.
 
+## TRES billing rates on CHPC
+
+CHPC bills against PI allocations (denominated in node-hours / SUs depending on cluster) for the standard general partitions (`<PI>`, `notchpeak`, `notchpeak-gpu`, equivalents on other clusters). Several partitions are explicitly free of allocation charge:
+
+- `notchpeak-shared-short` (and equivalents) — free, capped at 8 hr.
+- `*-freecycle` — uses idle general cycles, free, preemptable.
+- `*-guest` (`owner-guest`, `notchpeak-gpu-guest`) — preempts owner nodes, free.
+- `lonepeak` — no allocation required at all.
+
+For partitions that *do* bill, inspect the per-resource weights directly — values vary by cluster and change over time, so don't reason from cached numbers:
+
+```bash
+scontrol show partition <p> | grep -E 'PartitionName|TRESBillingWeights'
+scontrol show config | grep PriorityFlags     # MAX_TRES vs SUM
+scontrol show job <jobid> | grep -E 'ReqTRES|AllocTRES'  # billing= field is units/min
+```
+
+See SKILL.md's "TRES billing rates" section for how to compute the dominant TRES and right-size requests. Whole-node (non-shared) general partitions may bill on the whole node regardless of what the job requests — confirm by submitting a tiny test and reading the resulting `billing=` field before drawing conclusions about cost levers.
+
+For owner partitions (`<PI>-np`), the PI controls scheduling but jobs typically don't decrement a CHPC allocation. Treat them as free at the allocation level (subject to PI policy).
+
+When `Reason=AssocGrpBillingMinutes` or `QOSGrpBillingMinutes` shows up on a pending job, the PI's allocation is exhausted or projected-cost-plus-used would exceed it. Contact help@chpc.utah.edu for the current balance, or check `mychpc usage`.
+
 ## Writing an sbatch script
 
 Minimal template:
